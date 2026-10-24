@@ -42,3 +42,7 @@ Send each tile twice consecutively, including manual tiles. Tile validation reje
 With the server running, open `http://localhost:8080/dashboard` on the server laptop. The dashboard refreshes every second and displays room membership, ready/connection status, phases, grid details, open sockets, and uptime. Use **Launch 4 test players**, **Ready all**, and the disconnect/reconnect buttons to exercise the real WebSocket lobby without iPhones. Closing the page disconnects its test players; in-memory rooms remain visible until the server restarts.
 
 `GET /api/dashboard` supplies an allowlisted monitor snapshot. Dashboard pages and data are restricted to loopback connections. They exclude hidden roles, full player IDs/reconnect credentials, and raw sockets. The activity list contains changes observed while the page is open. This developer view does not change the iPhone event protocol.
+
+## ARWorldMap storage
+
+`POST /map/ABCD` accepts raw binary with `Content-Type: application/octet-stream` and `X-Player-Id` set to the host's joined ID. Uploads require lobby phase and 1 byte–20 MiB; success is HTTP 204 and broadcasts `lobby.hasMap=true`. `GET /map/ABCD` returns the same bytes as `application/octet-stream`; it returns 404 until a map is uploaded. The server treats ARWorldMap as opaque bytes and keeps it in memory. These routes are available over LAN for iOS; dashboard routes remain laptop-only.
