@@ -1,16 +1,11 @@
 const { randomInt, randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
+const { RoomError } = require('./errors');
+const { Game } = require('./game');
 
 const MAX_PLAYERS = 4;
 const DEFAULT_GRID = Object.freeze({ cols: 5, rows: 5, tileSize: 1.0, blocked: [] });
 const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-class RoomError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
 
 function roomCode() {
   return Array.from({ length: 4 }, () => ROOM_CODE_ALPHABET[randomInt(ROOM_CODE_ALPHABET.length)]).join('');
@@ -30,7 +25,7 @@ function send(socket, message) {
 }
 
 class Room {
-  constructor(code) {
+  constructor(code, options) {
     this.code = code;
     this.hostId = null;
     this.players = new Map();
@@ -38,6 +33,7 @@ class Room {
     this.stations = [];
     this.hasMap = false;
     this.phase = 'lobby';
+    this.game = new Game(this, options);
   }
 
   addPlayer(name, socket, playerId) {
@@ -53,8 +49,11 @@ class Room {
       }
       existing.socket = socket;
       existing.ready = false;
+      existing.pendingTile = null;
       return existing;
     }
+
+    if (this.phase !== 'lobby') throw new RoomError('GAME_STARTED', 'New players cannot join after game start.');
 
     if (this.players.size >= MAX_PLAYERS) {
       throw new RoomError('ROOM_FULL', 'This room already has four players.');
@@ -79,7 +78,9 @@ class Room {
     if (player?.socket === socket) {
       player.socket = null;
       player.ready = false;
-      this.broadcastLobby();
+      player.pendingTile = null;
+      if (this.phase === 'lobby') this.broadcastLobby();
+      else this.game.publish();
     }
   }
 
@@ -90,13 +91,17 @@ class Room {
     this.broadcastLobby();
   }
 
+  publicPlayers() {
+    return Array.from(this.players.values(), ({ id, name, tile, alive, tileSource, ready, socket }) => ({
+        id, name, tile, alive, tileSource, ready,
+        connected: socket?.readyState === WebSocket.OPEN,
+      }));
+  }
+
   lobbyMessage() {
     return {
       t: 'lobby',
-      players: Array.from(this.players.values(), ({ id, name, tile, alive, tileSource, ready, socket }) => ({
-        id, name, tile, alive, tileSource, ready,
-        connected: socket?.readyState === WebSocket.OPEN,
-      })),
+      players: this.publicPlayers(),
       grid: this.grid,
       stations: this.stations,
       hasMap: this.hasMap,
@@ -104,14 +109,22 @@ class Room {
   }
 
   broadcastLobby() {
-    const message = this.lobbyMessage();
+    this.broadcast(this.lobbyMessage());
+  }
+
+  sendTo(player, message) {
+    send(player.socket, message);
+  }
+
+  broadcast(message) {
     for (const player of this.players.values()) send(player.socket, message);
   }
 }
 
 class RoomManager {
-  constructor() {
+  constructor(options = {}) {
     this.rooms = new Map();
+    this.options = options;
   }
 
   create(name, socket) {
@@ -119,7 +132,7 @@ class RoomManager {
     do {
       code = roomCode();
     } while (this.rooms.has(code));
-    const room = new Room(code);
+    const room = new Room(code, this.options);
     const player = room.addPlayer(name, socket);
     this.rooms.set(code, room);
     return { room, player };

@@ -49,7 +49,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 | t | fields | notes |
 |---|---|---|
 | `create` | name | returns `room` code (4 letters), host |
-| `join` | room, name | returns `playerId`; same playerId on reconnect |
+| `join` | room, name, playerId? | `playerId` is supplied only for reconnect; returns the same identity |
 | `ready` | ready: Bool | lobby only; updates the sender's ready status |
 | `setRoom` | grid, stations | host only; uploads scan result |
 | `suggest` | photos (base64 jpeg), boxes metadata | host only; server calls Gemini, replies `suggestions` |
@@ -68,7 +68,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 |---|---|
 | `joined` | playerId, room |
 | `lobby` | players, grid, stations, hasMap |
-| `suggestions` | stations (with name, tile, task) |
+| `suggestions` | objects: [{label, box: [x,y,w,h]}] (0–1 normalized image coordinates) |
 | `role` | role (private) |
 | `state` | full GameState (broadcast on every change) |
 | `killed` | by hidden; sent only to victim |
@@ -90,6 +90,16 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 2. Server sends photos to Gemini Flash asking for JSON `[{label, box:[x,y,w,h]}]`.
 3. App raycasts each box center against the scan (mesh or planes) to a world point, converts to a tile, and picks a task type per label. Host accepts or rejects each station.
 There is no canned fallback: if Gemini fails, the host places stations by hand on the 2D map.
+
+## Approved backend integration details
+
+- WebSocket endpoint: `/ws`. `state` and `meeting` fields are beside `t`, e.g. `{ "t":"state", "phase":"playing", "players":[], ... }`; `meeting` is also nested inside GameState. `result.winner` is `"crew"`, `"impostor"`, or null. `killed` has no killer identity.
+- A start needs the host and four connected players. Ready status is shown in the lobby; it does not add a separate start requirement. New players cannot join after start; known players may reconnect and privately receive their own role, current state, and final winner if ended.
+- Emergency tile is `(0,0)` and must remain unblocked. Meetings freeze tile changes. Votes are public in `MeetingState.votes`, one per living player. More than half of all living players must vote for the same target to eject; missing votes, ties, and skip majorities do not eject anyone. Meetings finish after 30 seconds or when all living players vote. Bodies cannot be reported again after a meeting.
+- Each living crew member completes each task-kind station once. Both numerator and denominator exclude eliminated crew. A room with no task stations supports the manual kill/vote demo and has no task-based victory. First sabotage is immediately available; subsequent sabotage waits 45 seconds. Kill cooldown starts at game start and after each kill.
+- Tile changes require two consecutive identical reports, including manual mode. The manual picker/network layer should send the same tile twice. Reconnect, invalid reports, and meetings reset pending reports.
+- Gemini replies only to the requesting host, with object labels and image boxes. For the initial demo, `photos` contains one base64 JPEG; optional `boxes` metadata is opaque context and cannot establish room coordinates. The client raycasts boxes to tiles and chooses tasks, then the host submits approved stations through `setRoom`. This replaces the former tiled-stations response, which conflicted with client-side raycasting.
+- Binary map upload uses `POST /map/:room` with `Content-Type: application/octet-stream` and `X-Player-Id` equal to the host ID. Uploads are lobby-only, 1 byte–20 MiB. `GET /map/:room` returns the same binary or 404 until a map exists. This is a demo ownership check, not an authentication system.
 
 ## Failure handling
 - Disconnect: server keeps the player; reconnect with `playerId` restores state.

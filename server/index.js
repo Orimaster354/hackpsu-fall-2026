@@ -4,8 +4,8 @@ const path = require('node:path');
 const WebSocket = require('ws');
 const { RoomError, RoomManager, send } = require('./rooms');
 
-function createAppServer() {
-  const rooms = new RoomManager();
+function createAppServer(options = {}) {
+  const rooms = new RoomManager(options);
   const startedAt = Date.now();
   const dashboardAssets = new Map([
     ['/dashboard', ['index.html', 'text/html; charset=utf-8']],
@@ -84,7 +84,15 @@ function createAppServer() {
             ? rooms.create(message.name, socket)
             : rooms.join(message.room, message.name, socket, message.playerId);
           send(socket, { t: 'joined', playerId: membership.player.id, room: membership.room.code });
-          membership.room.broadcastLobby();
+          if (membership.room.phase === 'lobby') membership.room.broadcastLobby();
+          else {
+            send(socket, membership.room.lobbyMessage());
+            send(socket, { t: 'role', role: membership.player.role });
+            membership.room.game.publish();
+            if (membership.room.game.winner) send(socket, {
+              t: 'result', ejected: null, role: null, winner: membership.room.game.winner,
+            });
+          }
           return;
         }
 
@@ -96,7 +104,7 @@ function createAppServer() {
           membership.room.setReady(membership.player.id, message.ready);
           return;
         }
-        throw new RoomError('NOT_IMPLEMENTED', `Event '${message.t}' is not part of the lobby skeleton.`);
+        membership.room.game.handle(membership.player, message);
       } catch (error) {
         if (error instanceof SyntaxError) {
           send(socket, { t: 'error', code: 'INVALID_JSON', message: 'Message is not valid JSON.' });
@@ -128,6 +136,7 @@ function createAppServer() {
       });
     },
     close() {
+      for (const room of rooms.rooms.values()) room.game.dispose();
       for (const socket of sockets.clients) socket.terminate();
       return new Promise((resolve, reject) => {
         sockets.close((socketError) => {
