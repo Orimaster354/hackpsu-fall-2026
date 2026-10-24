@@ -1,0 +1,17 @@
+{
+  "name": "roomshift-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "In-memory WebSocket lobby for the four-player demo",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test",
+    "smoke": "node tools/fakeClients.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
