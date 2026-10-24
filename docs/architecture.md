@@ -1,26 +1,43 @@
 # Architecture
 
 ## Overview
-Four iPhones connect over WebSocket to one authoritative Node server on a laptop (phone hotspot, LAN IP). The host phone scans the room; the server stores the grid, stations and ARWorldMap; all other phones download them and relocalize.
+Four iPhones connect over WebSocket to one authoritative Node server on a laptop (phone hotspot, LAN IP). The host phone records two videos with a camera pose log; the server builds the grid, stations and emergency tile from them and stores them with the ARWorldMap. Other phones download everything, relocalize, and render the result as AR icons.
 
 ```
-iPhone (host) --scan--> grid + worldmap + photos --> Server --> Gemini
-iPhone x3  <--- room, stations, worldmap ---  Server
+Host: pass 1 (overview) + pass 2 (edge walk)  = video + pose log each
+   --> Server: room polygon, grid, Gemini objects, station + emergency tiles --> ARWorldMap + setup
+Players: download setup + worldmap --> relocalize --> AR icons on tiles
 All phones <--> WebSocket JSON (tiles, intents, state) <--> Server (game state machine)
 ```
 
 ## Modules and boundaries
 | Module | Path | Responsibility | Depends on |
 |---|---|---|---|
-| AR | `MyApp/AR/` | RoomPlan scan, grid build, ARWorldMap save/load, relocalize, current tile, photo raycast | Models |
+| AR | `MyApp/AR/` | Record video + timestamped pose log (two passes), save/load ARWorldMap, relocalize, current tile, AR icon overlay | Models |
 | Net | `MyApp/Net/` | WebSocket client, encode/decode messages, reconnect | Models |
 | Models | `MyApp/Models/` | Codable types below | none |
 | UI | `MyApp/UI/` | Lobby, role reveal, map, meeting, vote, end screens, manual tile picker | Net, Models |
 | Tasks | `MyApp/Tasks/` | Core Motion task views, each returns success/fail | none |
-| Server | `server/` | Rooms, state machine, validation, Gemini proxy | none |
+| Server | `server/` | Rooms, state machine, validation, scan processing (polygon, grid, station placement), Gemini proxy | none |
+
+## Scan capture (host)
+Both passes run in one ARKit world-tracking session, so all poses share one frame (origin = where the host starts). The app only records; it does no geometry.
+- Pass 1, overview: walk through the room showing every object, about 30-60 s.
+- Pass 2, edge walk: walk once around the room with the camera on the walls and the floor line, about 30-60 s. Close the loop at the start point.
+- Each pass uploads `video.mp4` (720p) and `poses.json`: `[{t, x, y, z, qx, qy, qz, qw}]` at about 10 Hz (t in seconds from video start) plus camera intrinsics `{fx, fy, cx, cy, width, height}` once.
+- After pass 2 the app saves the ARWorldMap and uploads it.
+
+## Server scan processing
+1. Room polygon: take the pass-2 path projected to the floor (x, z), simplify, and close it. The wall line is the path offset outward by 0.5 m (the host walks about half a meter from the wall; tune on a real room).
+2. Grid: rasterize the polygon into 1.0 m tiles. Tiles inside are playable; tiles touching the polygon boundary are `edge`.
+3. Objects: send both videos to Gemini Flash; it returns `[{label, t, box:[x,y,w,h]}]` with timestamps.
+4. Station placement: for each object, take the pose at `t`, cast a ray from the camera through the box center (using intrinsics), and intersect it with the polygon boundary. Snap to the nearest edge tile. Stations must be on edge tiles, with a minimum of 2 tiles between stations.
+5. Emergency tile: the playable tile closest to the polygon centroid.
+6. The host reviews and can move, delete or add stations by tapping edge tiles on the 2D map.
+If the polygon is not closed or the area is under 4 m^2 the server returns `error: scan_failed` and the host rescans.
 
 ## Positioning model
-- Grid: `cols x rows` of 1.0 m tiles; origin at the scan bounds' min corner; axes follow the world map.
+- Grid: `cols x rows` of 1.0 m tiles on the floor plane (x, z); origin at the polygon's min corner, in the host's ARKit world frame, so it matches the ARWorldMap.
 - Phone computes `tile = floor((pos - origin) / 1.0)` from ARKit and sends it at 2-4 Hz.
 - Server accepts a tile change only after 2 consecutive identical reports (drift filter).
 - Fallback: `tileSource = "manual"`, player taps a tile on the 2D map. Same message.
@@ -29,8 +46,9 @@ All phones <--> WebSocket JSON (tiles, intents, state) <--> Server (game state m
 ## Shared models (Swift Codable / JSON)
 ```
 Tile        { x: Int, y: Int }
-Grid        { cols: Int, rows: Int, tileSize: Double (1.0), blocked: [Tile] }
-Station     { id: String, name: String, tile: Tile, task: TaskType, kind: "task"|"fix" }
+Grid        { cols: Int, rows: Int, tileSize: Double (1.0), originX: Double, originZ: Double,
+              playable: [Tile], edge: [Tile] }
+Station     { id: String, name: String, tile: Tile, task: TaskType, kind: "task"|"fix"|"emergency" }
 TaskType    "shake" | "tilt" | "dial" | "hold" | "gesture"
 Role        "crew" | "impostor"
 Phase       "lobby" | "playing" | "meeting" | "ended"
@@ -42,16 +60,19 @@ MeetingState{ reason: "report"|"emergency", bodyOf: String?, endsAt: Int, votes:
 `tasksTotal` counts tasks for living crew only. Ghosts do not do tasks. Times are epoch ms.
 
 ## Protocol
-JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `GET /map/:room` for the ARWorldMap binary (not over WebSocket).
+JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebSocket:
+- `POST /scan/:room/overview` and `POST /scan/:room/edge`: multipart with `video` (mp4), `poses` (JSON), `intrinsics` (JSON). Host only.
+- `POST /map/:room` and `GET /map/:room`: ARWorldMap binary.
+- `POST /scan/:room/process`: starts server processing after both passes and the map are uploaded. Result arrives as `setup` over WebSocket.
 
 ### Client to server
 | t | fields | notes |
 |---|---|---|
 | `create` | name | returns `room` code (4 letters), host |
 | `join` | room, name | returns `playerId`; same playerId on reconnect |
-| `setRoom` | grid, stations | host only; uploads scan result |
-| `suggest` | photos (base64 jpeg), boxes metadata | host only; server calls Gemini, replies `suggestions` |
-| `start` | | host only, needs 4 players |
+| `editStation` | station (full object) or `{id, delete: true}` | host only, lobby phase; tile must be an edge tile |
+| `confirmSetup` | | host only; locks grid and stations |
+| `start` | | host only, needs 4 players and confirmed setup |
 | `tile` | tile, source | position report |
 | `taskDone` | stationId | server checks player is on that tile and alive |
 | `kill` | targetId | impostor swipe; server checks same tile, cooldown, alive |
@@ -66,7 +87,8 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 |---|---|
 | `joined` | playerId, room |
 | `lobby` | players, grid, stations, hasMap |
-| `suggestions` | stations (with name, tile, task) |
+| `processing` | step: "polygon"\|"gemini"\|"placing" |
+| `setup` | grid, stations (draft until confirmed) |
 | `role` | role (private) |
 | `state` | full GameState (broadcast on every change) |
 | `killed` | by hidden; sent only to victim |
@@ -84,10 +106,15 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 - Roles: random, 1 impostor for 4 players (count is a constant `IMPOSTORS`).
 
 ## Gemini flow
-1. Host captures ARFrame JPEGs plus camera transform/intrinsics.
-2. Server sends photos to Gemini Flash asking for JSON `[{label, box:[x,y,w,h]}]`.
-3. App raycasts each box center against the scan (mesh or planes) to a world point, converts to a tile, and picks a task type per label. Host accepts or rejects each station.
-There is no canned fallback: if Gemini fails, the host places stations by hand on the 2D map.
+Server only. Input: the two videos. Output JSON: `[{label, t, box:[x,y,w,h]}]` (box normalized 0-1, `t` seconds in that video). The server maps each label to a task type (table/desk to hold, sofa to tilt, door to dial, and so on, with a default rotation of types) and places it per "Server scan processing". There is no canned fallback: if Gemini fails or returns nothing usable, the host places stations by hand on the 2D map.
+
+## AR view (players)
+After relocalizing, each phone shows world-anchored icons at tile centers, visible from across the room:
+- A question-mark icon on every not-yet-done task station tile (a dimmed icon for tasks the player already completed). The fix station shows a wrench icon only while lights are out.
+- An "EMERGENCY" text icon on the emergency tile.
+- Ghosts and dead players see no task icons.
+- Icons are hidden until relocalization succeeds. In manual mode the same icons appear on the 2D map only.
+The icon positions come straight from `Station.tile` and `Grid`; the app only converts tile to world position (`originX + (x + 0.5)`, `originZ + (y + 0.5)`).
 
 ## Failure handling
 - Disconnect: server keeps the player; reconnect with `playerId` restores state.
