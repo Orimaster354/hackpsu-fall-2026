@@ -37,6 +37,7 @@ class Room {
     this.grid = { ...DEFAULT_GRID, blocked: [] };
     this.stations = [];
     this.hasMap = false;
+    this.phase = 'lobby';
   }
 
   addPlayer(name, socket, playerId) {
@@ -51,6 +52,7 @@ class Room {
         existing.socket.close(4000, 'Reconnected elsewhere');
       }
       existing.socket = socket;
+      existing.ready = false;
       return existing;
     }
 
@@ -64,6 +66,7 @@ class Room {
       tile: null,
       alive: true,
       tileSource: 'manual',
+      ready: false,
       socket,
     };
     this.players.set(player.id, player);
@@ -73,14 +76,26 @@ class Room {
 
   detach(playerId, socket) {
     const player = this.players.get(playerId);
-    if (player?.socket === socket) player.socket = null;
+    if (player?.socket === socket) {
+      player.socket = null;
+      player.ready = false;
+      this.broadcastLobby();
+    }
+  }
+
+  setReady(playerId, ready) {
+    if (this.phase !== 'lobby') throw new RoomError('INVALID_PHASE', 'Ready status can only change in the lobby.');
+    if (typeof ready !== 'boolean') throw new RoomError('INVALID_READY', 'Ready must be a boolean.');
+    this.players.get(playerId).ready = ready;
+    this.broadcastLobby();
   }
 
   lobbyMessage() {
     return {
       t: 'lobby',
-      players: Array.from(this.players.values(), ({ id, name, tile, alive, tileSource }) => ({
-        id, name, tile, alive, tileSource,
+      players: Array.from(this.players.values(), ({ id, name, tile, alive, tileSource, ready, socket }) => ({
+        id, name, tile, alive, tileSource, ready,
+        connected: socket?.readyState === WebSocket.OPEN,
       })),
       grid: this.grid,
       stations: this.stations,

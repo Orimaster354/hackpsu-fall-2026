@@ -36,6 +36,8 @@ Both passes run in one ARKit world-tracking session, so all poses share one fram
 6. The host reviews and can move, delete or add stations by tapping edge tiles on the 2D map.
 If the polygon is not closed or the area is under 4 m^2 the server returns `error: scan_failed` and the host rescans.
 
+Approved geometry defaults for Phase 3: loop closure uses horizontal Euclidean distance in `(x,z)`, with endpoints at most 0.75 m apart. Task/fix station spacing uses Euclidean distance between tile centers, at least 2 m (not Manhattan distance); the emergency station is separate. These geometry calculations remain pending; setup validation already enforces station spacing.
+
 ## Positioning model
 - Grid: `cols x rows` of 1.0 m tiles on the floor plane (x, z); origin at the polygon's min corner, in the host's ARKit world frame, so it matches the ARWorldMap.
 - Phone computes `tile = floor((pos - origin) / 1.0)` from ARKit and sends it at 2-4 Hz.
@@ -52,12 +54,14 @@ Station     { id: String, name: String, tile: Tile, task: TaskType, kind: "task"
 TaskType    "shake" | "tilt" | "dial" | "hold" | "gesture"
 Role        "crew" | "impostor"
 Phase       "lobby" | "playing" | "meeting" | "ended"
-Player      { id, name, tile: Tile?, alive: Bool, tileSource: "ar"|"manual" }
+Player      { id, name, tile: Tile?, alive: Bool, tileSource: "ar"|"manual",
+              ready: Bool, connected: Bool }
 GameState   { phase, players: [Player], tasksDone: Int, tasksTotal: Int,
               lightsOut: Bool, killCooldownEndsAt: Int?, meeting: MeetingState? }
 MeetingState{ reason: "report"|"emergency", bodyOf: String?, endsAt: Int, votes: { [id]: id|"skip" } }
 ```
 `tasksTotal` counts tasks for living crew only. Ghosts do not do tasks. Times are epoch ms.
+The emergency station's required `task` uses `hold` as an ignored placeholder; clients branch on `kind` and never launch a task for it.
 
 ## Protocol
 JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebSocket:
@@ -69,9 +73,10 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 | t | fields | notes |
 |---|---|---|
 | `create` | name | returns `room` code (4 letters), host |
-| `join` | room, name | returns `playerId`; same playerId on reconnect |
-| `editStation` | station (full object) or `{id, delete: true}` | host only, lobby phase; tile must be an edge tile |
-| `confirmSetup` | | host only; locks grid and stations |
+| `join` | room, name, playerId? | returns `playerId`; send the same room/name/playerId on reconnect |
+| `ready` | ready: Bool | lobby only; server updates sender; advisory, not an extra start requirement |
+| `editStation` | station (full object or `{id, delete: true}`) | host only, lobby phase; task/fix edge tiles only; emergency immutable |
+| `confirmSetup` | | host only; locks grid and stations; retries are idempotent |
 | `start` | | host only, needs 4 players and confirmed setup |
 | `tile` | tile, source | position report |
 | `taskDone` | stationId | server checks player is on that tile and alive |
@@ -86,21 +91,25 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 | t | fields |
 |---|---|
 | `joined` | playerId, room |
-| `lobby` | players, grid, stations, hasMap |
+| `lobby` | players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool |
 | `processing` | step: "polygon"\|"gemini"\|"placing" |
-| `setup` | grid, stations (draft until confirmed) |
+| `setup` | grid, stations, setupConfirmed: Bool (draft until confirmed) |
 | `role` | role (private) |
 | `state` | full GameState (broadcast on every change) |
-| `killed` | by hidden; sent only to victim |
+| `killed` | no extra fields; sent only to victim, no killer identity |
 | `meeting` | MeetingState |
-| `result` | ejected: id\|null, role, winner |
+| `result` | ejected: id\|null, role: Role\|null, winner: Role\|null |
 | `error` | code, message |
+
+`state` and `meeting` event fields sit directly beside `t`; GameState also has a nested nullable `meeting`. A new room has `grid=null`, empty stations and `setupConfirmed=false` until the server produces setup. Only internal scan processing (or an explicit developer fixture) supplies grid geometry; the obsolete client `setRoom` event is not accepted. Station edits broadcast both `setup` and `lobby`; confirmation broadcasts both with `setupConfirmed=true`. The deletion shorthand `{t:"editStation",id,delete:true}` is also accepted.
+
+On join/reconnect the server sends `joined`, `setup` if available, and the current lobby; during play it also restores only that player's private role and public state. Disconnection retains membership, sets `connected=false`, and clears ready. Reconnect requires readying again. Public snapshots never contain roles. Backend JSON fixtures and the client checklist are in `server/CLIENT_INTEGRATION.md`; Swift decoding/device acceptance remains pending Owner D's implementation.
 
 ## Rules enforced by the server
 - Kill: impostor alive, victim alive and crew, same tile, cooldown 25 s from last kill (and from game start).
 - Dead player: phone stays at the body tile; `alive=false`; cannot vote, kill or do tasks.
 - Report: reporter alive and on same tile as the body. Emergency: once per player, 3 total.
-- Meeting: 30 s vote; majority ejects; tie or skip majority ejects no one.
+- Meeting: 30 s vote; more than half of all living players must vote for a player to eject them; ties, skips and minority votes eject no one.
 - Win: crew when `tasksDone >= tasksTotal` or impostor ejected; impostor when alive crew <= alive impostors.
 - Lights out: `lightsOut=true`, crew tasks rejected until `fix` on the fix station; sabotage cooldown 45 s.
 - Roles: random, 1 impostor for 4 players (count is a constant `IMPOSTORS`).
