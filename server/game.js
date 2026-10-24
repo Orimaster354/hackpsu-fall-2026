@@ -78,9 +78,13 @@ class Game {
     const players = [...this.room.players.values()];
     requireAction(players.length === 4 && this.room.publicPlayers().every((member) => member.connected),
       'NEED_FOUR_PLAYERS', 'Four connected players are required.');
-    const impostorIndex = this.randomIndex(players.length);
-    players.forEach((member, index) => {
-      member.role = index === impostorIndex ? 'impostor' : 'crew';
+    const candidates = [...players];
+    const impostors = new Set();
+    for (let index = 0; index < IMPOSTORS; index += 1) {
+      impostors.add(candidates.splice(this.randomIndex(candidates.length), 1)[0]);
+    }
+    players.forEach((member) => {
+      member.role = impostors.has(member) ? 'impostor' : 'crew';
       member.alive = true;
       member.completedTasks = new Set();
       member.usedEmergency = false;
