@@ -45,6 +45,7 @@ class Room {
         throw new RoomError('PLAYER_NOT_FOUND', 'No matching player to reconnect.');
       }
       if (existing.socket && existing.socket !== socket) {
+        if (existing.id === this.hostId) this.liveScan?.stop('host_reconnected');
         existing.socket.close(4000, 'Reconnected elsewhere');
       }
       existing.socket = socket;
@@ -76,6 +77,7 @@ class Room {
   detach(playerId, socket) {
     const player = this.players.get(playerId);
     if (player?.socket === socket) {
+      if (player.id === this.hostId) this.liveScan?.stop('host_disconnected');
       player.socket = null;
       player.ready = false;
       player.pendingTile = null;

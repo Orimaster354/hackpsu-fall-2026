@@ -9,6 +9,8 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 
 Backend/client coordination: approved wire details (ready/connected fields, flat state/meeting messages, emergency tile, two-report manual tiles, Gemini boxes and map upload ownership) are recorded in `docs/architecture.md`. D should align client models/networking with these details. Roles remain private; disconnect clears readiness and reconnect preserves identity.
 
+Live-video coordination (user-approved): A+D should implement host/lobby-only `scan_start`, `scan_frame`, `scan_stop` and handle private `scan_status` / `scan_detections`, retaining each frame's AR pose/intrinsics by frameId. Backend limits are 1 FPS, 256 KiB/JPEG and 90 s per session. Intermediate frames can be dropped; boxes must use the matching captured frame, not the current camera pose. Camera capture must stop on game start/stopped status. See the updated architecture contract.
+
 ## Phase 1: Manual-tile game, end to end (no AR)
 - [x] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md. Verified server rules and WebSocket reconnect tests.
 - [x] C: `server/tools/fakeClient.js` bots. AC: bots can run a full round. `npm run round` exercises four bots, private roles, a task, emergency meeting, voting, and victory.
@@ -35,6 +37,7 @@ Backend/client coordination: approved wire details (ready/connected fields, flat
 C dependency complete: server accepts validated tile reports with the two-consecutive-report filter for both `ar` and `manual` sources. Physical relocalization/accuracy acceptance criteria remain owned by A.
 
 ## Phase 5: Gemini stations
+- [x] C: user-approved host/lobby continuous video interface (`scan_start`, `scan_frame`, `scan_stop`, private `scan_status`/`scan_detections`). Browser test streamed 6 sampled frames from a public 5-second MP4; Flash-Lite returned 2 frame-matched results with sensible labels (trees, bench, vehicles, fence). Latest capture-to-result latency was 18.8 s including queue time, so 1 FPS input is not a 1 FPS inference guarantee. All 30 automated tests pass. Native Gemini Live transport was tested but its labels were inaccurate; the user approved stateless Flash-Lite analysis behind the continuous feed. A+D iOS camera/pose integration and real room validation remain pending.
 - [x] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Verified with mocked provider/error tests and live end-to-end `npm run test:gemini` requests using Google's public scones JPEG. The tuned Flash-Lite configuration returned 12 concrete labels (including coffee mug, bowl, and spoon) with valid normalized boxes in about 3 seconds using the saved key. Generic labels are filtered. All 23 automated backend tests pass. Real room detection quality and station suitability still need host review during A/B integration. Keys remain in ignored `.env` only.
 - [ ] A: capture frames, raycast box centers to tiles, map labels to task types.
 - [ ] B: host accept/reject UI. AC: at least 3 stations placed in a scan.

@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const { RoomError, RoomManager, send } = require('./rooms');
 const { handleMap } = require('./maps');
 const { createGeminiClient } = require('./gemini');
+const { LiveScan } = require('./liveScan');
 
 function createAppServer(options = {}) {
   const rooms = new RoomManager(options);
@@ -15,7 +16,16 @@ function createAppServer(options = {}) {
     ['/dashboard/', ['index.html', 'text/html; charset=utf-8']],
     ['/dashboard/app.js', ['app.js', 'text/javascript; charset=utf-8']],
     ['/dashboard/style.css', ['style.css', 'text/css; charset=utf-8']],
+    ['/dashboard/live', ['live.html', 'text/html; charset=utf-8']],
+    ['/dashboard/live.js', ['live.js', 'text/javascript; charset=utf-8']],
+    ['/dashboard/live.css', ['live.css', 'text/css; charset=utf-8']],
   ].map(([route, [file, type]]) => [route, { type, body: fs.readFileSync(path.join(__dirname, 'dashboard', file)) }]));
+  const testVideoPath = options.testVideoPath || process.env.LIVE_SCAN_TEST_VIDEO;
+  if (testVideoPath) {
+    const size = fs.statSync(testVideoPath).size;
+    if (size > 10 * 1024 * 1024) throw new Error('Local test video must be at most 10 MiB.');
+    dashboardAssets.set('/dashboard/demo-video', { type: 'video/mp4', body: fs.readFileSync(testVideoPath) });
+  }
   const server = http.createServer((request, response) => {
     let route;
     try { route = new URL(request.url, 'http://localhost').pathname; }
@@ -51,7 +61,7 @@ function createAppServer(options = {}) {
         response.end(JSON.stringify({ startedAt, now: Date.now(), connections: sockets.clients.size, rooms: roomList }));
       } else {
         const asset = dashboardAssets.get(route);
-        response.writeHead(200, { 'content-type': asset.type });
+        response.writeHead(200, { 'content-type': asset.type, 'content-length': asset.body.length });
         response.end(asset.body);
       }
       return;
@@ -90,7 +100,7 @@ function createAppServer(options = {}) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
           throw new RoomError('INVALID_MESSAGE', 'Message must be a JSON object.');
         }
-        if (message.t !== 'suggest' && raw.length > 64 * 1024) {
+        if (!['suggest', 'scan_frame'].includes(message.t) && raw.length > 64 * 1024) {
           throw new RoomError('MESSAGE_TOO_LARGE', 'Non-image events are limited to 64 KiB.');
         }
 
@@ -120,6 +130,29 @@ function createAppServer(options = {}) {
           membership.room.setReady(membership.player.id, message.ready);
           return;
         }
+        if (['scan_start', 'scan_frame', 'scan_stop'].includes(message.t)) {
+          const { room, player } = membership;
+          room.game.phase('lobby');
+          room.game.host(player);
+          if (message.t === 'scan_start') {
+            if (room.liveScan) throw new RoomError('SCAN_ACTIVE', 'Stop the current scan before starting another.');
+            const scan = new LiveScan({ ...(options.liveScanOptions || {}),
+              notify: (event) => {
+                if (player.socket === socket && (event.t !== 'scan_detections' || room.phase === 'lobby')) send(socket, event);
+              }, onStop: () => { if (room.liveScan === scan) room.liveScan = null; },
+            });
+            room.liveScan = scan;
+            send(socket, { t: 'scan_status', state: 'connecting' });
+            try { await scan.start(); } catch (error) { scan.stop('error'); throw error; }
+          } else if (message.t === 'scan_stop') {
+            if (room.liveScan) room.liveScan.stop();
+            else send(socket, { t: 'scan_status', state: 'stopped', reason: 'host_stopped' });
+          } else {
+            if (!room.liveScan) throw new RoomError('SCAN_NOT_READY', 'Start a scan first.');
+            room.liveScan.frame(message);
+          }
+          return;
+        }
         if (message.t === 'suggest') {
           const { room, player } = membership;
           room.game.phase('lobby');
@@ -136,6 +169,7 @@ function createAppServer(options = {}) {
           return;
         }
         membership.room.game.handle(membership.player, message);
+        if (membership.room.phase !== 'lobby') membership.room.liveScan?.stop('game_started');
       } catch (error) {
         if (error instanceof SyntaxError) {
           send(socket, { t: 'error', code: 'INVALID_JSON', message: 'Message is not valid JSON.' });
@@ -168,6 +202,7 @@ function createAppServer(options = {}) {
     },
     close() {
       for (const room of rooms.rooms.values()) room.game.dispose();
+      for (const room of rooms.rooms.values()) room.liveScan?.stop('server_stopped');
       for (const socket of sockets.clients) socket.terminate();
       return new Promise((resolve, reject) => {
         sockets.close((socketError) => {
