@@ -21,6 +21,7 @@ test('Gemini adapter sends server key/JPEG to the official API and normalizes va
   const body = JSON.parse(request.options.body);
   assert.equal(body.contents[0].parts[0].inlineData.data, jpeg);
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'LOW' });
   assert.ok(!request.options.body.includes('test-key'));
 });
 

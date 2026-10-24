@@ -10,7 +10,7 @@ async function main() {
     client.send({ t: 'create', name: 'Gemini test host' });
     await client.waitFor((event) => event.t === 'joined');
     client.send({ t: 'suggest', photos: [photo] });
-    const result = await client.waitFor((event) => event.t === 'suggestions', 20000);
+    const result = await client.waitFor((event) => event.t === 'suggestions', 60000);
     if (!result.objects.length) throw new Error('No objects detected. Try a clear photo with ordinary objects.');
     console.log(JSON.stringify(result, null, 2));
     console.log(`PASS: live Gemini returned ${result.objects.length} labeled image boxes.`);
