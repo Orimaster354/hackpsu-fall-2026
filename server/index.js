@@ -6,7 +6,46 @@ const { RoomError, RoomManager, send } = require('./rooms');
 
 function createAppServer() {
   const rooms = new RoomManager();
+  const startedAt = Date.now();
+  const dashboardAssets = new Map([
+    ['/dashboard', ['index.html', 'text/html; charset=utf-8']],
+    ['/dashboard/', ['index.html', 'text/html; charset=utf-8']],
+    ['/dashboard/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+    ['/dashboard/style.css', ['style.css', 'text/css; charset=utf-8']],
+  ].map(([route, [file, type]]) => [route, { type, body: fs.readFileSync(path.join(__dirname, 'dashboard', file)) }]));
   const server = http.createServer((request, response) => {
+    const route = new URL(request.url, 'http://localhost').pathname;
+    if (request.method === 'GET' && (dashboardAssets.has(route) || route === '/api/dashboard')) {
+      const address = request.socket.remoteAddress;
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address)) {
+        response.writeHead(403);
+        response.end('Dashboard is available on the server laptop only.');
+        return;
+      }
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      if (route === '/api/dashboard') {
+        const roomList = Array.from(rooms.rooms.values(), (room) => ({
+          code: room.code,
+          phase: room.phase,
+          grid: { cols: room.grid.cols, rows: room.grid.rows, tileSize: room.grid.tileSize },
+          stationCount: room.stations.length,
+          hasMap: room.hasMap,
+          players: room.lobbyMessage().players.map((player) => ({
+            label: player.id.slice(0, 8), name: player.name,
+            host: player.id === room.hostId, connected: player.connected,
+            ready: player.ready, alive: player.alive, tile: player.tile, tileSource: player.tileSource,
+          })),
+        }));
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ startedAt, now: Date.now(), connections: sockets.clients.size, rooms: roomList }));
+      } else {
+        const asset = dashboardAssets.get(route);
+        response.writeHead(200, { 'content-type': asset.type });
+        response.end(asset.body);
+      }
+      return;
+    }
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ ok: true }));
