@@ -23,14 +23,16 @@ Backend/client coordination: approved wire details (ready/connected fields, flat
 
 ## Phase 3: Scan and grid (A)
 - [ ] A: RoomPlan scan, derive bounds, build Grid with 1 m tiles. AC: grid dims within 0.5 m of tape measure for a 5x5 m room.
-- [ ] A: save ARWorldMap, upload via `POST /map/:room`; C stores in memory.
-- [ ] A+D: `setRoom` upload with grid and stations; host UI to review.
-- [ ] C: `GET /map/:room`.
+- [ ] A: save ARWorldMap, upload via `POST /map/:room`; C stores in memory. C's binary upload/store is implemented and tested; A's actual ARWorldMap upload remains pending.
+- [ ] A+D: `setRoom` upload with grid and stations; host UI to review. Server-side host validation and setup handling are implemented/tested; A+D client integration remains pending.
+- [x] C: `GET /map/:room`. Verified exact binary round-trip, room isolation, missing-map errors, host-only/size-limited uploads, and lobby-only writes.
 
 ## Phase 4: Relocalization and live tiles (A)
 - [ ] A: load map, relocalize, 20 s timeout then manual mode. AC: 3 of 3 joiners relocalize in the real room, or fall back cleanly.
 - [ ] A: compute tile and send at 2-4 Hz; server 2-report filter. AC: two phones standing together report the same tile 90 percent of the time.
 - [ ] Decision gate (hour ~14): if relocalization fails in the real room, ship manual mode and remove AR from the demo path.
+
+C dependency complete: server accepts validated tile reports with the two-consecutive-report filter for both `ar` and `manual` sources. Physical relocalization/accuracy acceptance criteria remain owned by A.
 
 ## Phase 5: Gemini stations
 - [ ] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo.

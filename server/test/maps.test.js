@@ -1,0 +1,49 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createAppServer } = require('../index');
+const { connectClient } = require('../tools/client');
+
+test('map upload checks host, stores room-scoped bytes, and broadcasts map availability', async (t) => {
+  const app = createAppServer({ maxMapBytes: 16 });
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+  const host = await connectClient(base.replace('http', 'ws') + '/ws');
+  host.send({ t: 'create', name: 'Host' });
+  const identity = await host.waitFor((event) => event.t === 'joined');
+  const observer = await connectClient(base.replace('http', 'ws') + '/ws');
+  observer.send({ t: 'join', room: identity.room, name: 'Observer' });
+  const guest = await observer.waitFor((event) => event.t === 'joined');
+  const url = `${base}/map/${identity.room}`;
+  assert.equal((await fetch(url)).status, 404);
+  const headers = { 'content-type': 'application/octet-stream', 'x-player-id': identity.playerId };
+  assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, 'x-player-id': guest.playerId }, body: 'map' })).status, 403);
+  assert.equal((await fetch(url, { method: 'POST', headers, body: '' })).status, 400);
+  assert.equal((await fetch(url, { method: 'POST', headers, body: Buffer.alloc(17) })).status, 413);
+  const binary = Buffer.from([0, 255, 10, 22, 0, 7]);
+  assert.equal((await fetch(url, { method: 'POST', headers, body: binary })).status, 204);
+  for (const client of [host, observer]) assert.equal((await client.waitFor((event) => event.t === 'lobby' && event.hasMap)).hasMap, true);
+  const downloaded = await fetch(url);
+  assert.equal(downloaded.headers.get('content-type'), 'application/octet-stream');
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), binary);
+  const another = await connectClient(base.replace('http', 'ws') + '/ws');
+  another.send({ t: 'create', name: 'Another room' });
+  const other = await another.waitFor((event) => event.t === 'joined');
+  assert.equal((await fetch(`${base}/map/${other.room}`)).status, 404);
+});
+
+test('map upload is blocked after game start and GET remains available', async (t) => {
+  const app = createAppServer();
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+  const socket = () => ({ readyState: 1, send() {} });
+  const { room, player } = app.rooms.create('Host', socket());
+  for (let index = 0; index < 3; index += 1) app.rooms.join(room.code, `Player ${index}`, socket());
+  const url = `${base}/map/${room.code}`;
+  const headers = { 'content-type': 'application/octet-stream', 'x-player-id': player.id };
+  assert.equal((await fetch(url, { method: 'POST', headers, body: 'map' })).status, 204);
+  room.game.start(player);
+  assert.equal((await fetch(url, { method: 'POST', headers, body: 'replacement' })).status, 409);
+  assert.equal(await (await fetch(url)).text(), 'map');
+});
