@@ -131,3 +131,41 @@ test('bad messages return protocol errors without closing the socket', async (t)
   client.send({ t: 'ready', ready: 'yes' });
   assert.equal((await client.waitFor((m) => m.t === 'error')).code, 'INVALID_READY');
 });
+
+test('dashboard serves live public status without roles or reconnect credentials', async (t) => {
+  const app = createAppServer();
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+  for (const route of ['/dashboard', '/dashboard/app.js', '/dashboard/style.css']) {
+    const response = await fetch(base + route);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.ok((await response.text()).length > 0);
+  }
+  assert.deepEqual((await (await fetch(base + '/api/dashboard')).json()).rooms, []);
+  const client = await connect(`ws://127.0.0.1:${address.port}/ws`);
+  client.send({ t: 'create', name: 'Dashboard test' });
+  const joined = await client.waitFor((message) => message.t === 'joined');
+  const player = app.rooms.rooms.get(joined.room).players.get(joined.playerId);
+  player.role = 'PRIVATE_ROLE_MARKER';
+  client.send({ t: 'ready', ready: true });
+  await client.waitFor((message) => message.t === 'lobby' && message.players[0].ready);
+  const response = await fetch(base + '/api/dashboard');
+  const text = await response.text();
+  assert.ok(!text.includes('PRIVATE_ROLE_MARKER'));
+  assert.ok(!text.includes(joined.playerId));
+  const snapshot = JSON.parse(text);
+  assert.equal(snapshot.connections, 1);
+  assert.equal(snapshot.rooms[0].phase, 'lobby');
+  assert.equal(snapshot.rooms[0].players[0].connected, true);
+  assert.equal(snapshot.rooms[0].players[0].ready, true);
+  assert.equal(snapshot.rooms[0].players[0].host, true);
+  const closed = new Promise((resolve) => player.socket.once('close', resolve));
+  client.socket.close();
+  await closed;
+  const offline = await (await fetch(base + '/api/dashboard')).json();
+  assert.equal(offline.connections, 0);
+  assert.equal(offline.rooms[0].players[0].connected, false);
+  assert.equal(offline.rooms[0].players[0].ready, false);
+});

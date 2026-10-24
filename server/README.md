@@ -30,3 +30,9 @@ Room codes are four uppercase letters. A room holds four players; disconnected p
 Each public player includes server-owned `connected` and `ready` booleans. Disconnects broadcast `connected=false` and clear readiness. Reconnect preserves identity and membership, broadcasts `connected=true`, and requires readying again. These fields and the `ready` event are documented in the approved architecture extension; the iOS networking/models owner must include them in the client contract.
 
 Game actions, tile updates, room scan upload, and Gemini suggestions are not implemented yet. The authoritative event and model contract is `../docs/architecture.md`.
+
+## Local dashboard
+
+With the server running, open `http://localhost:8080/dashboard` on the server laptop. The dashboard refreshes every second and displays room membership, ready/connection status, phases, grid details, open sockets, and uptime. Use **Launch 4 test players**, **Ready all**, and the disconnect/reconnect buttons to exercise the real WebSocket lobby without iPhones. Closing the page disconnects its test players; in-memory rooms remain visible until the server restarts.
+
+`GET /api/dashboard` supplies an allowlisted monitor snapshot. Dashboard pages and data are restricted to loopback connections. They exclude hidden roles, full player IDs/reconnect credentials, and raw sockets. The activity list contains changes observed while the page is open. This developer view does not change the iPhone event protocol.
