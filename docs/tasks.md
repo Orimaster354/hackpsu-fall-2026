@@ -35,7 +35,7 @@ Backend/client coordination: approved wire details (ready/connected fields, flat
 C dependency complete: server accepts validated tile reports with the two-consecutive-report filter for both `ar` and `manual` sources. Physical relocalization/accuracy acceptance criteria remain owned by A.
 
 ## Phase 5: Gemini stations
-- [ ] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Implemented and tested with mocked provider responses (including validation, private host response, missing key, quota errors, timeout and box conversion). Live-image acceptance remains pending until `server/.env` is configured and `npm run test:gemini -- <photo.jpg>` succeeds; do not mark complete based on mocks.
+- [ ] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Implemented and tested with mocked provider responses (including validation, private host response, missing key, quota errors, timeout and box conversion). The saved key passed a live model-list check (HTTP 200), but generation with Google's public scones JPEG timed out, including a 45 s request with reduced thinking. Live-image acceptance remains pending until `npm run test:gemini -- <photo.jpg>` succeeds; do not mark complete based on key validation or mocks.
 - [ ] A: capture frames, raycast box centers to tiles, map labels to task types.
 - [ ] B: host accept/reject UI. AC: at least 3 stations placed in a scan.
 

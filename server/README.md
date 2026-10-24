@@ -51,7 +51,7 @@ With the server running, open `http://localhost:8080/dashboard` on the server la
 
 Set `GEMINI_API_KEY` in the ignored `server/.env`; optionally set `GEMINI_MODEL` (default `gemini-3.8-flash`). Restart the server after changing environment settings. No provider SDK or new dependency is required. The adapter uses the [official generateContent REST API](https://ai.google.dev/api/generate-content) and [image detection format](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding).
 
-The host sends `{ "t":"suggest", "photos":["<base64 JPEG>"] }` in the lobby. Limits: one JPEG up to 4 MiB, one pending request per room, 15 s provider timeout. Response: `{ "t":"suggestions", "objects":[{"label":"Table","box":[0.2,0.1,0.6,0.3]}] }`. Boxes are normalized `[x,y,width,height]`, relative to the single image. They are not indoor positions; iOS must raycast them before the host uses `setRoom`. Provider failures return a recoverable `error`; the host places stations manually. Multiple keys in one project share its rate limits; this demo uses one configured key.
+The host sends `{ "t":"suggest", "photos":["<base64 JPEG>"] }` in the lobby. Limits: one JPEG up to 4 MiB, one pending request per room, 45 s provider timeout. Response: `{ "t":"suggestions", "objects":[{"label":"Table","box":[0.2,0.1,0.6,0.3]}] }`. Boxes are normalized `[x,y,width,height]`, relative to the single image. They are not indoor positions; iOS must raycast them before the host uses `setRoom`. Provider failures return a recoverable `error`; the host places stations manually. Multiple keys in one project share its rate limits; this demo uses one configured key.
 
 With the server running and a non-sensitive JPEG selected for sending to Gemini:
 
@@ -59,7 +59,7 @@ With the server running and a non-sensitive JPEG selected for sending to Gemini:
 npm.cmd run test:gemini -- C:\path\to\test-photo.jpg
 ```
 
-This test creates a host room, sends the JPEG to Gemini, validates the returned labels/boxes, and exits. `npm test` uses mocked provider responses; it does not prove live model access. The Phase 5 acceptance checkbox stays open until the live photo check passes.
+This test creates a host room, sends the JPEG to Gemini, validates the returned labels/boxes, and exits. Gemini 3 models use low thinking; Gemini 2.5 Flash models disable thinking for this simple detection request, following the [provider's thinking settings](https://ai.google.dev/gemini-api/docs/generate-content/thinking). `npm test` uses mocked provider responses; it does not prove live image generation. The Phase 5 acceptance checkbox stays open until the live photo check passes.
 
 ## Internal rule interface
 
