@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const WebSocket = require('ws');
 const { RoomError, RoomManager, send } = require('./rooms');
+const { handleMap } = require('./maps');
 
 function createAppServer(options = {}) {
   const rooms = new RoomManager(options);
@@ -15,6 +16,11 @@ function createAppServer(options = {}) {
   ].map(([route, [file, type]]) => [route, { type, body: fs.readFileSync(path.join(__dirname, 'dashboard', file)) }]));
   const server = http.createServer((request, response) => {
     const route = new URL(request.url, 'http://localhost').pathname;
+    const mapRoute = /^\/map\/([A-Z]{4})$/.exec(route);
+    if (mapRoute) {
+      void handleMap(request, response, rooms, mapRoute[1], options.maxMapBytes);
+      return;
+    }
     if (request.method === 'GET' && (dashboardAssets.has(route) || route === '/api/dashboard')) {
       const address = request.socket.remoteAddress;
       if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address)) {
