@@ -4,9 +4,11 @@ const path = require('node:path');
 const WebSocket = require('ws');
 const { RoomError, RoomManager, send } = require('./rooms');
 const { handleMap } = require('./maps');
+const { createGeminiClient } = require('./gemini');
 
 function createAppServer(options = {}) {
   const rooms = new RoomManager(options);
+  const suggest = options.suggest || createGeminiClient();
   const startedAt = Date.now();
   const dashboardAssets = new Map([
     ['/dashboard', ['index.html', 'text/html; charset=utf-8']],
@@ -15,7 +17,9 @@ function createAppServer(options = {}) {
     ['/dashboard/style.css', ['style.css', 'text/css; charset=utf-8']],
   ].map(([route, [file, type]]) => [route, { type, body: fs.readFileSync(path.join(__dirname, 'dashboard', file)) }]));
   const server = http.createServer((request, response) => {
-    const route = new URL(request.url, 'http://localhost').pathname;
+    let route;
+    try { route = new URL(request.url, 'http://localhost').pathname; }
+    catch { response.writeHead(400); response.end(); return; }
     const mapRoute = /^\/map\/([A-Z]{4})$/.exec(route);
     if (mapRoute) {
       void handleMap(request, response, rooms, mapRoute[1], options.maxMapBytes);
@@ -60,10 +64,13 @@ function createAppServer(options = {}) {
     response.writeHead(404);
     response.end();
   });
-  const sockets = new WebSocket.WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  const sockets = new WebSocket.WebSocketServer({ noServer: true, maxPayload: 6 * 1024 * 1024 });
 
   server.on('upgrade', (request, socket, head) => {
-    if (new URL(request.url, 'http://localhost').pathname !== '/ws') {
+    let route;
+    try { route = new URL(request.url, 'http://localhost').pathname; }
+    catch { socket.destroy(); return; }
+    if (route !== '/ws') {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
       socket.destroy();
       return;
@@ -76,12 +83,15 @@ function createAppServer(options = {}) {
   sockets.on('connection', (socket) => {
     let membership = null;
 
-    socket.on('message', (raw, isBinary) => {
+    socket.on('message', async (raw, isBinary) => {
       try {
         if (isBinary) throw new RoomError('INVALID_MESSAGE', 'Send a JSON text frame.');
         const message = JSON.parse(raw.toString('utf8'));
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
           throw new RoomError('INVALID_MESSAGE', 'Message must be a JSON object.');
+        }
+        if (message.t !== 'suggest' && raw.length > 64 * 1024) {
+          throw new RoomError('MESSAGE_TOO_LARGE', 'Non-image events are limited to 64 KiB.');
         }
 
         if (message.t === 'create' || message.t === 'join') {
@@ -108,6 +118,21 @@ function createAppServer(options = {}) {
         }
         if (message.t === 'ready') {
           membership.room.setReady(membership.player.id, message.ready);
+          return;
+        }
+        if (message.t === 'suggest') {
+          const { room, player } = membership;
+          room.game.phase('lobby');
+          room.game.host(player);
+          if (room.suggestionInFlight) throw new RoomError('SUGGEST_BUSY', 'A suggestion is already in progress.');
+          room.suggestionInFlight = true;
+          try {
+            const objects = await suggest(message);
+            room.game.phase('lobby');
+            if (player.socket === socket) send(socket, { t: 'suggestions', objects });
+          } finally {
+            room.suggestionInFlight = false;
+          }
           return;
         }
         membership.room.game.handle(membership.player, message);

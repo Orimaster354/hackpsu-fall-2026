@@ -20,6 +20,8 @@ test('map upload checks host, stores room-scoped bytes, and broadcasts map avail
   assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, 'x-player-id': guest.playerId }, body: 'map' })).status, 403);
   assert.equal((await fetch(url, { method: 'POST', headers, body: '' })).status, 400);
   assert.equal((await fetch(url, { method: 'POST', headers, body: Buffer.alloc(17) })).status, 413);
+  const chunked = async function* () { yield Buffer.alloc(10); yield Buffer.alloc(10); };
+  assert.equal((await fetch(url, { method: 'POST', headers, body: chunked(), duplex: 'half' })).status, 413);
   const binary = Buffer.from([0, 255, 10, 22, 0, 7]);
   assert.equal((await fetch(url, { method: 'POST', headers, body: binary })).status, 204);
   for (const client of [host, observer]) assert.equal((await client.waitFor((event) => event.t === 'lobby' && event.hasMap)).hasMap, true);
