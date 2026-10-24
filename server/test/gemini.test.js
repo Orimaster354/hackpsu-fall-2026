@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createGeminiClient } = require('../gemini');
+const { createGeminiClient, normalizeObjects } = require('../gemini');
 const { createAppServer } = require('../index');
 const { connectClient } = require('../tools/client');
 
@@ -34,6 +34,16 @@ test('Gemini adapter rejects invalid photos/configuration without calling an ext
     await assert.rejects(suggest({ photos }), { code: 'INVALID_PHOTO' });
   }
   assert.equal(calls, 0);
+});
+
+test('generic detection labels are omitted without inventing object names', () => {
+  const object = (label) => ({ label, box_2d: [100, 200, 400, 800] });
+  const generic = ['ordinary stationary object', 'object 1', 'item', 'furniture', 'unknown', 'task station'];
+  assert.deepEqual(normalizeObjects(generic.map(object)), []);
+  assert.deepEqual(normalizeObjects([...generic.map(object), object('  blue   coffee mug  '), object('desk lamp')]), [
+    { label: 'blue coffee mug', box: [0.2, 0.1, 0.6, 0.3] },
+    { label: 'desk lamp', box: [0.2, 0.1, 0.6, 0.3] },
+  ]);
 });
 
 test('Gemini errors, invalid JSON and out-of-range boxes fail without canned stations', async () => {

@@ -35,7 +35,7 @@ Backend/client coordination: approved wire details (ready/connected fields, flat
 C dependency complete: server accepts validated tile reports with the two-consecutive-report filter for both `ar` and `manual` sources. Physical relocalization/accuracy acceptance criteria remain owned by A.
 
 ## Phase 5: Gemini stations
-- [x] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Verified with mocked provider/error tests and a live end-to-end `npm run test:gemini` request using Google's public scones JPEG: the newly configured key returned 10 valid normalized labeled boxes in about 5 seconds. An earlier Flash-Lite test also returned 13 boxes. The latest response used generic object labels, so descriptive-label quality and real room station suitability still need host review during A/B integration. Keys remain in ignored `.env` only.
+- [x] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Verified with mocked provider/error tests and live end-to-end `npm run test:gemini` requests using Google's public scones JPEG. The tuned Flash-Lite configuration returned 12 concrete labels (including coffee mug, bowl, and spoon) with valid normalized boxes in about 3 seconds using the saved key. Generic labels are filtered. All 23 automated backend tests pass. Real room detection quality and station suitability still need host review during A/B integration. Keys remain in ignored `.env` only.
 - [ ] A: capture frames, raycast box centers to tiles, map labels to task types.
 - [ ] B: host accept/reject UI. AC: at least 3 stations placed in a scan.
 
