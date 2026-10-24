@@ -50,6 +50,13 @@ function createAppServer() {
         }
 
         if (!membership) throw new RoomError('NOT_JOINED', 'Create or join a room first.');
+        if (membership.player.socket !== socket) {
+          throw new RoomError('CONNECTION_REPLACED', 'This player has reconnected on another connection.');
+        }
+        if (message.t === 'ready') {
+          membership.room.setReady(membership.player.id, message.ready);
+          return;
+        }
         throw new RoomError('NOT_IMPLEMENTED', `Event '${message.t}' is not part of the lobby skeleton.`);
       } catch (error) {
         if (error instanceof SyntaxError) {
