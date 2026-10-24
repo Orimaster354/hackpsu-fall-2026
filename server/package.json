@@ -10,7 +10,8 @@
     "start": "node index.js",
     "test": "node --test",
     "smoke": "node tools/fakeClients.js",
-    "round": "node tools/fakeClient.js"
+    "round": "node tools/fakeClient.js",
+    "test:gemini": "node tools/testGemini.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
