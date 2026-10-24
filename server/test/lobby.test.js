@@ -74,7 +74,7 @@ test('four fake clients share one lobby and a fifth is rejected', async (t) => {
   assert.equal(error.code, 'ROOM_FULL');
 });
 
-test('a player can reconnect using the same playerId', async (t) => {
+test('readiness and disconnect/reconnect status synchronize without losing the player', async (t) => {
   const app = createAppServer();
   const address = await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
@@ -83,14 +83,37 @@ test('a player can reconnect using the same playerId', async (t) => {
   const original = await connect(url);
   original.send({ t: 'create', name: 'Host' });
   const first = await original.waitFor((m) => m.t === 'joined');
+  const observer = await connect(url);
+  observer.send({ t: 'join', room: first.room, name: 'Observer' });
+  await observer.waitFor((m) => m.t === 'joined');
+  original.send({ t: 'ready', ready: true });
+  for (const client of [original, observer]) {
+    const lobby = await client.waitFor((m) => m.t === 'lobby'
+      && m.players.find((player) => player.id === first.playerId)?.ready === true);
+    assert.equal(lobby.players.find((player) => player.id === first.playerId).connected, true);
+  }
+  const room = app.rooms.rooms.get(first.room);
+  const disconnected = new Promise((resolve) => room.players.get(first.playerId).socket.once('close', resolve));
   original.socket.close();
+  await disconnected;
+  assert.equal(room.players.get(first.playerId).socket, null);
+  const offline = await observer.waitFor((m) => m.t === 'lobby'
+    && m.players.find((player) => player.id === first.playerId)?.connected === false);
+  assert.equal(offline.players.find((player) => player.id === first.playerId).ready, false);
 
   const replacement = await connect(url);
   replacement.send({ t: 'join', room: first.room, name: 'Host', playerId: first.playerId });
   const joined = await replacement.waitFor((m) => m.t === 'joined');
   const lobby = await replacement.waitFor((m) => m.t === 'lobby');
   assert.equal(joined.playerId, first.playerId);
-  assert.equal(lobby.players.length, 1);
+  assert.equal(lobby.players.length, 2);
+  assert.equal(lobby.players.find((player) => player.id === first.playerId).ready, false);
+  assert.equal(lobby.players.find((player) => player.id === first.playerId).connected, true);
+  const restored = await observer.waitFor((m) => m.t === 'lobby'
+    && m.players.find((player) => player.id === first.playerId)?.connected === true
+    && m.players.find((player) => player.id === first.playerId)?.ready === false);
+  assert.deepEqual(restored, lobby);
+  assert.ok(room.players.get(first.playerId).socket);
 });
 
 test('bad messages return protocol errors without closing the socket', async (t) => {
@@ -105,4 +128,6 @@ test('bad messages return protocol errors without closing the socket', async (t)
   assert.equal((await client.waitFor((m) => m.t === 'error')).code, 'ROOM_NOT_FOUND');
   client.send({ t: 'create', name: 'Test' });
   assert.equal((await client.waitFor((m) => m.t === 'joined')).t, 'joined');
+  client.send({ t: 'ready', ready: 'yes' });
+  assert.equal((await client.waitFor((m) => m.t === 'error')).code, 'INVALID_READY');
 });

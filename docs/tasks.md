@@ -5,7 +5,9 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 ## Phase 0: Contracts (D, first hour; blocks everything)
 - [ ] D: `MyApp/Models/` Codable types matching `docs/architecture.md`. AC: compiles; sample JSON round-trips.
 - [ ] D: `MyApp/Net/GameClient.swift` (connect, send, receive, reconnect with playerId). AC: connects to the server and prints `lobby`.
-- [ ] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room.
+- [x] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room. Verified with automated tests and `npm run smoke`; all four clients receive identical lobby membership and ready state.
+
+Backend/client coordination: the approved `ready` event and `Player.ready` / `Player.connected` fields are now in `docs/architecture.md`. D should include them in client models and networking. Disconnect clears ready status; reconnect preserves identity. The requested lobby milestone is complete; game phase transitions and private roles remain the next backend step.
 
 ## Phase 1: Manual-tile game, end to end (no AR)
 - [ ] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md.

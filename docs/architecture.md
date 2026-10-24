@@ -34,7 +34,8 @@ Station     { id: String, name: String, tile: Tile, task: TaskType, kind: "task"
 TaskType    "shake" | "tilt" | "dial" | "hold" | "gesture"
 Role        "crew" | "impostor"
 Phase       "lobby" | "playing" | "meeting" | "ended"
-Player      { id, name, tile: Tile?, alive: Bool, tileSource: "ar"|"manual" }
+Player      { id, name, tile: Tile?, alive: Bool, tileSource: "ar"|"manual",
+              ready: Bool, connected: Bool }
 GameState   { phase, players: [Player], tasksDone: Int, tasksTotal: Int,
               lightsOut: Bool, killCooldownEndsAt: Int?, meeting: MeetingState? }
 MeetingState{ reason: "report"|"emergency", bodyOf: String?, endsAt: Int, votes: { [id]: id|"skip" } }
@@ -49,6 +50,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. HTTP: `POST /map/:room` and `G
 |---|---|---|
 | `create` | name | returns `room` code (4 letters), host |
 | `join` | room, name | returns `playerId`; same playerId on reconnect |
+| `ready` | ready: Bool | lobby only; updates the sender's ready status |
 | `setRoom` | grid, stations | host only; uploads scan result |
 | `suggest` | photos (base64 jpeg), boxes metadata | host only; server calls Gemini, replies `suggestions` |
 | `start` | | host only, needs 4 players |
@@ -91,5 +93,6 @@ There is no canned fallback: if Gemini fails, the host places stations by hand o
 
 ## Failure handling
 - Disconnect: server keeps the player; reconnect with `playerId` restores state.
+- Lobby connection status is server-owned. Players start unready; disconnecting clears ready status and broadcasts `connected=false`. Reconnecting broadcasts `connected=true`; the player must ready again. `ready` changes are broadcast in `lobby`. This extension was approved for backend/client integration; client models must include both player fields.
 - Relocalization failure: manual tile picker.
 - Server restarts lose state (accepted for the hackathon).
