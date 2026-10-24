@@ -1,4 +1,4 @@
-# ROOMSHIFT server — Phase 0 lobby skeleton
+# ROOMSHIFT multiplayer server
 
 Requires Node.js 22 or newer. On Windows PowerShell, use `npm.cmd` if `npm.ps1` is blocked by the execution policy.
 
@@ -29,7 +29,13 @@ Room codes are four uppercase letters. A room holds four players; disconnected p
 
 Each public player includes server-owned `connected` and `ready` booleans. Disconnects broadcast `connected=false` and clear readiness. Reconnect preserves identity and membership, broadcasts `connected=true`, and requires readying again. These fields and the `ready` event are documented in the approved architecture extension; the iOS networking/models owner must include them in the client contract.
 
-Game actions, tile updates, room scan upload, and Gemini suggestions are not implemented yet. The authoritative event and model contract is `../docs/architecture.md`.
+## Game loop and full-round simulation
+
+`npm.cmd run round` connects four bots and plays a complete round: room setup, ready, two-report manual tiles, host start, private roles, task completion, emergency meeting, votes, and crew victory. To join an existing lobby with one persistent bot, use `node tools/fakeClient.js ABCD`. `WS_URL` selects another server (default `ws://127.0.0.1:8080/ws`).
+
+Implemented game intents: `setRoom`, `start`, `tile`, `taskDone`, `kill`, `report`, `emergency`, `vote`, `sabotage`, and `fix`. Server events include private `role` / `killed`, public `state`, `meeting`, `result`, and validation `error`. `state` fields are flat beside `t`; private roles never appear in player snapshots. Only the host may start with four connected players. Game phases are lobby → playing → meeting → playing/ended. The emergency tile is (0,0).
+
+Send each tile twice consecutively, including manual tiles. Tile validation rejects blocked/out-of-bounds cells, and meetings/ghosts freeze movement. Kills require a living impostor, same-tile crew target, and a 25 s cooldown. Tasks count once per station per living crew member. Lights-out blocks tasks until a living crew member fixes a fix station; sabotage cooldown is 45 s. Meeting timers use epoch milliseconds and expire after 30 s or all living votes; a strict majority is required for ejection. See `../docs/architecture.md` for the authoritative shared contract.
 
 ## Local dashboard
 

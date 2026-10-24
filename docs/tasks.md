@@ -7,18 +7,18 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 - [ ] D: `MyApp/Net/GameClient.swift` (connect, send, receive, reconnect with playerId). AC: connects to the server and prints `lobby`.
 - [x] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room. Verified with automated tests and `npm run smoke`; all four clients receive identical lobby membership and ready state.
 
-Backend/client coordination: the approved `ready` event and `Player.ready` / `Player.connected` fields are now in `docs/architecture.md`. D should include them in client models and networking. Disconnect clears ready status; reconnect preserves identity. The requested lobby milestone is complete; game phase transitions and private roles remain the next backend step.
+Backend/client coordination: approved wire details (ready/connected fields, flat state/meeting messages, emergency tile, two-report manual tiles, Gemini boxes and map upload ownership) are recorded in `docs/architecture.md`. D should align client models/networking with these details. Roles remain private; disconnect clears readiness and reconnect preserves identity.
 
 ## Phase 1: Manual-tile game, end to end (no AR)
-- [ ] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md.
-- [ ] C: `server/tools/fakeClient.js` bots. AC: bots can run a full round.
+- [x] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md. Verified server rules and WebSocket reconnect tests.
+- [x] C: `server/tools/fakeClient.js` bots. AC: bots can run a full round. `npm run round` exercises four bots, private roles, a task, emergency meeting, voting, and victory.
 - [ ] B: Lobby, role reveal, room map with manual tile picker, kill swipe, report/emergency buttons, meeting + vote, end screens. Depends on D Net. AC: 4 simulators/phones play a round with manual tiles.
 - [ ] B: dead-player screen telling the ghost to leave the phone and may wander.
 
 ## Phase 2: Tasks and sabotage
 - [ ] B: Tasks in `MyApp/Tasks/`: shake/tilt balance, hold-steady, rotate dial, each calls `taskDone`. AC: each succeeds in under 15 s on a device and fails when idle.
-- [ ] C: task counting for living crew only; `taskDone` validation.
-- [ ] B+C: lights out + fix station. AC: tasks blocked while lights out.
+- [x] C: task counting for living crew only; `taskDone` validation. Tests cover location, role, duplicates, dead crew progress, and task victory.
+- [ ] B+C: lights out + fix station. AC: tasks blocked while lights out. C server portion is implemented/tested, including 45 s cooldown and crew-only station fixes; B device UI integration remains pending.
 - [ ] B (cut first): gesture-pattern task.
 
 ## Phase 3: Scan and grid (A)
