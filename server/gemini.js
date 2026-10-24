@@ -43,7 +43,7 @@ function normalizeObjects(objects) {
 
 function createGeminiClient({ apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
   fetchImpl = fetch } = {}) {
-  return async function suggest(message) {
+  return async function suggest(message, { signal } = {}) {
     requireAction(apiKey, 'GEMINI_NOT_CONFIGURED', 'Gemini key is not configured. Place stations manually.');
     requireAction(/^[a-zA-Z0-9._-]+$/.test(model), 'GEMINI_NOT_CONFIGURED', 'Configure a valid GEMINI_MODEL.');
     const photo = validatePhoto(message.photos);
@@ -54,7 +54,7 @@ function createGeminiClient({ apiKey = process.env.GEMINI_API_KEY, model = proce
       : /^gemini-2\.5-flash/.test(model) ? { thinkingBudget: 0 } : undefined;
     try {
       response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST', signal: AbortSignal.timeout(45000),
+        method: 'POST', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000),
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({ contents: [{ role: 'user', parts: [
           { inlineData: { mimeType: 'image/jpeg', data: photo } },
@@ -83,4 +83,4 @@ function createGeminiClient({ apiKey = process.env.GEMINI_API_KEY, model = proce
   };
 }
 
-module.exports = { createGeminiClient, normalizeObjects, MAX_JPEG_BYTES, DEFAULT_GEMINI_MODEL };
+module.exports = { createGeminiClient, normalizeObjects, validatePhoto, MAX_JPEG_BYTES, DEFAULT_GEMINI_MODEL };

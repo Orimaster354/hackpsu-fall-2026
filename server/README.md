@@ -66,3 +66,17 @@ This test creates a host room, sends the JPEG to Gemini, validates the returned 
 ## Internal rule interface
 
 The WebSocket router resolves the socket's player and calls `room.game.handle(player, message)` for documented game intents. `Game.state()` returns the public GameState; `Game.publish()` broadcasts it using an explicit player allowlist. `room.sendTo(player, event)` is the private delivery path. Backend logic lives in `server/game.js` and `server/contracts.js`; integration changes should preserve `docs/architecture.md` and be coordinated with the client/game-rules owners. Test-only clock/random/timer injection is available through `createAppServer(options)` and cannot be set by client messages.
+
+## Continuous host video scan
+
+Start the server and open `http://localhost:8080/dashboard/live` for a laptop-only live-stream tester. Select a non-sensitive MP4 and click **Start live scan**. The video plays locally while JPEG frames continuously stream through `/ws` to the backend. Flash-Lite analyzes the latest available frame and results draw on the saved matching frame. The full MP4 is not uploaded. This tests the continuous path without needing an iPhone camera or FFmpeg.
+
+For automation without local-file picker access, set the server environment variable `LIVE_SCAN_TEST_VIDEO` to a local MP4 path (up to 10 MiB), restart, and click **Use server test clip**. The configured file is served only on loopback at `/dashboard/demo-video`; no request can choose arbitrary server paths. Do not commit test media or keys.
+
+The stream uses the existing `GEMINI_MODEL` (default `gemini-3.1-flash-lite`) and server-only `GEMINI_API_KEY`. It adds no dependencies. This is continuous sampled camera input with independent JSON detection requests, not temporal reasoning or stable object tracking. A native Gemini Live experiment streamed successfully but misidentified objects; the user approved the existing Flash-Lite detector behind the same continuous interface instead.
+
+Client sequence: join/create a room as host, send `{"t":"scan_start"}`, wait for `scan_status` ready, then stream `{"t":"scan_frame","frameId":"frame-1","timestampMs":0,"jpeg":"<base64>"}` at up to 1 FPS. Frames are at most 256 KiB; scale the longest edge to 768 px. Each frame ID must be unique and timestamps strictly increase. A private reply is `{"t":"scan_detections","frameId":"frame-1","timestampMs":0,"objects":[{"label":"desk lamp","box":[0.2,0.1,0.3,0.4]}]}`. Boxes use normalized image x/y/width/height.
+
+Send `{"t":"scan_stop"}` to finish. Sessions are limited to 90 s and close automatically on game start or host disconnect/reconnect. The server keeps one analyzed frame and only the latest waiting frame, so intermediate frames can be dropped. Each result is tied to the accepted frame ID/timestamp, but Gemini's box accuracy is approximate. A+D must retain AR poses/intrinsics for matching frames and stop camera capture on scan stop or game start. Gameplay position tracking remains tile-based.
+
+Verification: the browser streamed six frames from [Samplelib's public five-second video](https://samplelib.com/sample-mp4.html), and Flash-Lite returned two matched frames with concrete labels (trees, bench, vehicles, fence). Latest measured capture-to-result delay was 18.8 s including queue time on the saved key. Model latency varies: 1 FPS capture does not promise 1 FPS detections. Real room suitability and the native iPhone camera/AR integration still need testing by A+D.
