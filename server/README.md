@@ -49,7 +49,9 @@ With the server running, open `http://localhost:8080/dashboard` on the server la
 
 ## Gemini suggestions and live acceptance check
 
-Set `GEMINI_API_KEY` in the ignored `server/.env`; optionally set `GEMINI_MODEL` (default `gemini-3.8-flash`). Restart the server after changing environment settings. No provider SDK or new dependency is required. The adapter uses the [official generateContent REST API](https://ai.google.dev/api/generate-content) and [image detection format](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding).
+Set `GEMINI_API_KEY` in the ignored `server/.env`; optionally set `GEMINI_MODEL` (default `gemini-3.1-flash-lite`, a low-latency model with a free tier). Restart the server after changing environment settings. No provider SDK or new dependency is required. The adapter uses the [official generateContent REST API](https://ai.google.dev/api/generate-content) and [image detection format](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding).
+
+Detection asks for at most 12 prominent objects and concrete names such as coffee mug, bookshelf, or desk lamp. Generic labels are omitted rather than renamed; an empty result means the host should retake the photo or place stations manually. Examples in the prompt are naming guidance, not a list of objects to assume. For better room results, take a steady, well-lit photo that shows complete furniture/landmarks and avoids tiny, heavily occluded details. The host still reviews whether detected objects are suitable stations.
 
 The host sends `{ "t":"suggest", "photos":["<base64 JPEG>"] }` in the lobby. Limits: one JPEG up to 4 MiB, one pending request per room, 45 s provider timeout. Response: `{ "t":"suggestions", "objects":[{"label":"Table","box":[0.2,0.1,0.6,0.3]}] }`. Boxes are normalized `[x,y,width,height]`, relative to the single image. They are not indoor positions; iOS must raycast them before the host uses `setRoom`. Provider failures return a recoverable `error`; the host places stations manually. Multiple keys in one project share its rate limits; this demo uses one configured key.
 
