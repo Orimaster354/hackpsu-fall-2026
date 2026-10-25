@@ -1,3 +1,4 @@
+import ARKit
 import SwiftUI
 
 /// The full-screen view a crew member does a task in, over the live camera when it is available. It picks the Core Motion task for the station's
@@ -10,6 +11,8 @@ struct MotionTaskSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sensor = MotionSensor()
     @State private var camera = CameraFeed()
+    @State private var telemetry = TaskTelemetry()
+    @Environment(PositionCoordinator.self) private var position
     @State private var attempt = 0
     @State private var progress = 0.0
     @State private var outcome = Outcome.running
@@ -34,7 +37,7 @@ struct MotionTaskSheet: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background { backdrop.ignoresSafeArea() }
         .preferredColorScheme(.dark)
-        .task { await camera.start() }
+        .task { if arSession == nil { await camera.start() } }
         .task(id: attempt) { await runClock() }
         .onDisappear {
             sensor.stop()
@@ -46,10 +49,27 @@ struct MotionTaskSheet: View {
 
     // MARK: Pieces
 
+    /// The AR module's session, when the phone is tracking in the room. Then the camera belongs to
+    /// ARKit and the task is drawn on it; otherwise the plain camera feed is used.
+    private var arSession: ARSession? {
+        guard position.mode == .ar, position.status == .tracking else { return nil }
+        return (position.ar as? ARPositionProvider)?.arSession
+    }
+
     /// The room through the camera under a dark scrim so the text stays readable, or the plain
     /// backdrop when the camera is not available.
     @ViewBuilder private var backdrop: some View {
-        if camera.status == .running {
+        if let arSession {
+            ZStack {
+                TaskARBackdrop(session: arSession, task: station.task, telemetry: telemetry)
+                LinearGradient(
+                    colors: [.black.opacity(0.55), .clear, .black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .allowsHitTesting(false)
+            }
+        } else if camera.status == .running {
             ZStack {
                 CameraBackdrop(session: camera.session)
                 LinearGradient(
@@ -96,7 +116,15 @@ struct MotionTaskSheet: View {
     @ViewBuilder private var arena: some View {
         let context = TaskContext(
             sensor: sensor,
-            report: TaskReport(progress: { if outcome == .running { progress = $0 } }, complete: succeed)
+            report: TaskReport(
+                progress: {
+                    guard outcome == .running else { return }
+                    progress = $0
+                    telemetry.progress = $0
+                },
+                complete: succeed
+            ),
+            telemetry: telemetry
         )
         ZStack {
             switch station.task {
@@ -165,12 +193,14 @@ struct MotionTaskSheet: View {
 
     private func runClock() async {
         progress = 0
+        telemetry.reset()
         outcome = .running
         deadline = .now.addingTimeInterval(Self.timeLimit)
         sensor.start()
         try? await Task.sleep(for: .seconds(Self.timeLimit))
         guard !Task.isCancelled, outcome == .running else { return }
         sensor.stop()
+        telemetry.state = .timedOut
         outcome = .timedOut
     }
 
@@ -178,6 +208,8 @@ struct MotionTaskSheet: View {
         guard outcome == .running else { return }
         sensor.stop()
         outcome = .success
+        telemetry.state = .success
+        telemetry.progress = 1
         progress = 1
         onFinish()
         Task {
