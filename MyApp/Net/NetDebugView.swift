@@ -64,6 +64,12 @@ struct NetDebugView: View {
                     }
                 }
 
+                if client.roomCode != nil {
+                    Section("Scan (host)") {
+                        Button("Upload test perimeter (5x5 m)") { uploadTestPerimeter() }
+                    }
+                }
+
                 Section("Log") {
                     if let issue = client.lastIssue { Text("Issue: \(issue)").foregroundStyle(.orange) }
                     ForEach(Array(log.enumerated()), id: \.offset) { _, line in
@@ -101,6 +107,35 @@ struct NetDebugView: View {
         client.connect(to: endpoint)
         connectAction = "Connecting to ws://\(endpoint.host):\(endpoint.port)/ws"
         note(connectAction)
+    }
+
+    /// Sends a synthetic one-lap walk around a 4 x 4 m square (the same shape as docs/fixtures/poses.json) through
+    /// ScanClient. The server should answer with a 5 x 5 grid and 16 edge tiles, then broadcast `setup`.
+    private func uploadTestPerimeter() {
+        var samples: [PoseSample] = []
+        let corners: [(x: Double, z: Double, yaw: Double)] = [(0, 0, 0), (4, 0, -.pi / 2), (4, 4, .pi), (0, 4, .pi / 2), (0, 0, 0)]
+        var t = 0.0
+        for i in 0..<4 {
+            let (from, to) = (corners[i], corners[i + 1])
+            for step in 0..<50 {
+                let f = Double(step) / 50
+                let pose = CameraPose(x: from.x + (to.x - from.x) * f, y: 1.4, z: from.z + (to.z - from.z) * f,
+                                      qx: 0, qy: sin(from.yaw / 2), qz: 0, qw: cos(from.yaw / 2))
+                samples.append(PoseSample(t: t, pose: pose))
+                t += 0.1
+            }
+        }
+        samples.append(PoseSample(t: t, pose: CameraPose(x: 0, y: 1.4, z: 0, qx: 0, qy: 0, qz: 0, qw: 1)))
+        note("uploading \(samples.count) perimeter samples")
+        let scan = ScanClient(client: client)
+        Task {
+            do {
+                let result = try await scan.uploadPerimeter(poses: samples)
+                note("perimeter ok: \(result.cols)x\(result.rows), \(result.edgeTiles) edge tiles")
+            } catch {
+                note("perimeter failed: \(error)")
+            }
+        }
     }
 
     private func note(_ line: String) {

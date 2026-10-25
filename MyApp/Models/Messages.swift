@@ -151,6 +151,8 @@ struct ScanStatus: Codable, Hashable {
 }
 
 struct LobbySnapshot: Codable, Hashable {
+    /// The creator of the room. Use this for host controls instead of relying on player order. nil from older servers.
+    var hostId: String?
     var players: [Player]
     /// nil until the server has produced a setup for the room.
     var grid: Grid?
@@ -159,7 +161,8 @@ struct LobbySnapshot: Codable, Hashable {
     /// True once the host confirmed the setup. Locked after that, and still true after a reconnect.
     var setupConfirmed: Bool
 
-    init(players: [Player], grid: Grid?, stations: [Station], hasMap: Bool, setupConfirmed: Bool) {
+    init(hostId: String? = nil, players: [Player], grid: Grid?, stations: [Station], hasMap: Bool, setupConfirmed: Bool) {
+        self.hostId = hostId
         self.players = players
         self.grid = grid
         self.stations = stations
@@ -169,6 +172,7 @@ struct LobbySnapshot: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        hostId = try c.decodeIfPresent(String.self, forKey: .hostId)
         players = try c.decode([Player].self, forKey: .players)
         grid = try c.decodeIfPresent(Grid.self, forKey: .grid)
         stations = try c.decode([Station].self, forKey: .stations)

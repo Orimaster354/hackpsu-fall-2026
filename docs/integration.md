@@ -32,10 +32,31 @@ Flow to test with four devices: host creates a room; others join by code; host r
 
 ## Still open
 - **Scan pipeline (Phase 3)** is not built on the server, so real rooms have no grid. Only `start:manual` rooms can reach Start.
-- **Host id:** `lobby` has no `hostId`; the UI uses `players[0]`.
+- **Host id:** the server now sends `lobby.hostId`. `LobbySnapshot.hostId` decodes it, the adapter emits `.host(id:)`, and `GameSession.hostID` prefers it (falls back to `players[0]`). Untested on a device.
 - **Not in the contract yet:** server time on `state`, per-player completed stations, impostor id on `result`, `leave`. See "Open contract questions" in `docs/tasks.md`.
 - **Reconnect loop risk:** the server closes a replaced socket with code 4000, and the client may try to reconnect after it. Untested.
 - **A (AR):** pass `position:` and `startRoomScan:` in `ContentView` when ready.
+
+## Sticky-note scan integration (pivot)
+The scan is now a perimeter walk plus one 360-degree sweep, with yellow sticky notes on the walls. Contract: `docs/architecture.md` ("Sticky-note scan"). App-side spec for A: `docs/ar-capture.md`. Gemini prompt: `server/prompts/station-planning.md`.
+
+| Piece | Owner | State |
+|---|---|---|
+| Upload models: `CameraPose`, `PoseSample`, `CameraIntrinsics`, `PerimeterUpload`, `SweepFrame`, `SweepUpload`, results (`MyApp/Models/ScanModels.swift`) | D | written, uncompiled |
+| `ScanClient.uploadPerimeter` / `uploadSweep` (`MyApp/Net/ScanClient.swift`) | D | written, uncompiled |
+| Reference geometry, synthetic sweep and `check-geometry.js` (`docs/fixtures/postit/`) | D | runs and passes in Node |
+| `POST /scan/:room/perimeter` and `/sweep`, polygon and grid, YOLOE per frame, placement, selection | C | not built |
+| Perimeter walk, vantage picker, sweep capture, ARWorldMap save | A | not built |
+| Host setup review screen (edit and confirm stations) | B | exists, mock only |
+
+Order to integrate (each step is testable without the next):
+1. **C builds the perimeter endpoint** against `docs/fixtures/poses.json`. Expect a 5 x 5 grid, 16 edge tiles, origin (-0.5, -0.5) and the emergency station at the center. Test with a plain HTTP client; no phone.
+2. **D adds a debug button** in `NetDebugView` that uploads the fixture poses with `ScanClient`, so the Swift side is proven against the endpoint before A's capture exists.
+3. **C builds the sweep endpoint** with the YOLOE step stubbed to read the detections in `sweep-observations.json`, so geometry, selection and `setup` can be tested end to end. The real YOLOE call replaces the stub afterwards.
+4. **A produces real poses and frames** following `docs/ar-capture.md`. First target: the server accepts them.
+5. **Real room.** Record the note size, distance and lighting that work. This is the main risk of the pivot.
+
+Risks: small notes at 3 to 4 m are only a few dozen pixels; the ARKit image orientation and intrinsics must match the JPEG; heading drift can move a note to a neighboring tile near tile boundaries (accepted, the host edits); fewer than 4 notes found means the host places the rest by hand.
 
 ## Demo checklist (draft)
 Before: laptop on the phone hotspot, `npm run start:manual` (until scan exists), LAN IP in each phone's Settings, all phones on the hotspot, Info settings added.
