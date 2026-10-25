@@ -20,9 +20,9 @@ The server listens on `0.0.0.0:8080`. `PORT` overrides the port; `WS_URL` overri
 
 ## Setup modes
 
-`npm.cmd start` creates rooms with `grid=null`, empty stations and `setupConfirmed=false`. They wait for server-produced setup. Phase 3's two-pass scan uploads and geometry processor are not implemented yet.
+`npm.cmd start` creates rooms with `grid=null`, empty stations and `setupConfirmed=false`. Upload perimeter poses to produce a grid/emergency station, then a pose-tagged JPEG sweep to populate draft stations. Host confirmation is still required. The former two-video geometry pipeline is obsolete.
 
-`npm.cmd run start:manual` explicitly seeds each new room from [manual-setup.json](fixtures/manual-setup.json): a 5x5 playable grid with nonzero AR origins, three edge tasks, a fix station and an emergency station. The host must confirm it before starting. This enables client integration while scan processing is pending.
+`npm.cmd run start:manual` explicitly seeds each new room from [manual-setup.json](fixtures/manual-setup.json): a 5x5 playable grid with nonzero AR origins, three edge tasks, a fix station and an emergency station. The host must confirm it before starting. This enables manual integration without running a scan.
 
 `smoke` connects four clients and verifies shared lobby/readiness. `round` requires manual fixture mode (or another available server setup), confirms setup, readies four clients, sends manual tiles, receives private roles, completes a task, calls an emergency meeting, votes and verifies crew victory. Every run creates a new room. `node tools/fakeClient.js ABCD` joins an existing lobby with one persistent bot.
 
@@ -56,9 +56,41 @@ The dashboard shows available LAN WebSocket addresses, open sockets separately f
 
 To check phone reachability, open `http://<laptop-LAN-IP>:8080/health` in Safari on the same Wi-Fi/hotspot; expect `{"ok":true}`. Then use `ws://<laptop-LAN-IP>:8080/ws` in the iOS networking client and create/join a room. Safari's health check alone does not join a player. If campus Wi-Fi blocks peer connections, use a shared phone hotspot and recheck the laptop's IP. The local dashboard stays on the laptop. App networking/models must be implemented by Owner D before the app's lobby can join.
 
-## Internal producer/rule interface
+## Perimeter and JPEG sweep scan
 
-The router resolves socket membership and calls `room.game.handle(player, message)`. `Game.state()` returns public state, `Game.publish()` broadcasts it, and `room.sendTo(player, event)` delivers privately. The future scan processor calls internal `room.game.applySetup({grid,stations})`; validation clones the supplied data and rejects replacement after confirmation. This is not a client event. Test-only clock/random/timer injection is available through `createAppServer(options)`.
+`POST /scan/:room/perimeter`: JSON `{poses:[...]}`, 100-3000 poses, <=2 MiB. `POST /scan/:room/sweep`: JSON `{vantage,intrinsics,frames:[{index,t,pose,jpeg}]}`, 8-60 frames, <=64 MiB total and <=600 KiB decoded per JPEG. Both require `Content-Type: application/json` and `X-Player-Id: <host joined ID>`, lobby phase, and unconfirmed setup. Formats and native landscape JPEG/intrinsics conventions are in [architecture.md](../docs/architecture.md).
+
+Perimeter computes a simple closed outline (0.75 m closure, >=4 square meters), simplifies at 0.15 m, offsets walls outward by 0.5 m, creates 1 m playable/edge tiles, and places an immutable emergency station nearest the polygon centroid. The fixture produces origin (-0.5,-0.5), a 5x5 grid, 16 edge tiles and emergency (2,2). It broadcasts `processing {step:"polygon"}`, then `setup` and `lobby`. Invalid paths return HTTP 422 `SCAN_FAILED`; failed uploads leave previous setup intact.
+
+Sweep runs the local YOLOE worker on **every uploaded JPEG**, without video sampling, image-track grouping or the diagnostic's top-eight cap. It uses separate note and context inference, threshold 0.55 for notes, and same-frame context including furniture/TVs. Normalized boxes are converted to image pixels, projected using the uploaded frame's own pose/intrinsics, intersected with the saved boundary and snapped to edge tiles. Wall hits within 0.75 m merge using the strongest observation. A frame with usable detections must have dimensions matching the intrinsics; empty plain fixture frames do not generate rays.
+
+Gemini receives deduplicated `sweep:<n>` candidate IDs, scores and context, with no images, poses, coordinates or tiles. Selection follows valid Gemini order, rejects emergency overlap and task/fix spacing under 2 m, then backfills by score to 3 task + 1 fix when possible. Invalid/unavailable Gemini returns a warning and uses score ranking. No notes returns HTTP 200 with emergency-only setup and warnings. Draft results broadcast `setup` and `lobby`; host edits/confirmation still apply. `SCAN_BUSY` prevents overlapping scan work and setup mutations; data are rechecked before commit. Temporary JPEGs are deleted after success/failure/cancel.
+
+Run the deterministic demonstration (isolated server, injected fixture detections, intentional Gemini failure):
+
+```powershell
+node tools/testSweep.js --fixture
+```
+
+Expected: 6 notes, all reference tiles, 3 task + 1 fix, plus emergency. To use live Gemini with synthetic metadata: `node --env-file=.env tools/testSweep.js --fixture --gemini`.
+
+Against the running normal server, the supplied black-box checker uses actual HTTP/WebSockets and real YOLOE on its plain JPEGs (expected 0 notes):
+
+```powershell
+node ../docs/fixtures/postit/contract-check.js
+```
+
+When Owner A provides real capture files:
+
+```powershell
+node tools/testSweep.js C:\path\perimeter.json C:\path\sweep.json
+```
+
+`HTTP_URL` changes the target server. The command accepts either a perimeter pose array or `{poses:[...]}`, creates a lobby, uploads both steps, and prints note/station counts and final tiles. Sweep files must contain real matching ARKit poses, native-orientation JPEGs and calibrated intrinsics. Do not substitute fabricated poses for real acceptance. The available four compressed annotated room preview images yielded one >=0.55 note observation in a detector-only run; this is not a calibrated sweep or a count of physical notes. Real ARKit sweep acceptance remains pending capture.
+
+### Internal setup interface
+
+The router resolves socket membership and calls `room.game.handle(player, message)`. `Game.state()` returns public state, `Game.publish()` broadcasts it, and `room.sendTo(player, event)` delivers privately. The scan processor calls internal `room.game.applySetup({grid,stations})`; validation clones the supplied data and rejects replacement after confirmation. This is not a client event. Test-only clock/random/timer injection is available through `createAppServer(options)`.
 
 ## Wall Post-it detection and task reasoning
 
@@ -110,7 +142,7 @@ Refresh `/dashboard/videos`, select a detector, and upload the same clips for co
 
 ## Legacy sampled-frame/image helpers
 
-Existing `suggest` and `scan_start`/`scan_frame`/`scan_stop` helpers remain for detector diagnostics. They are not the updated iOS capture pipeline and cannot set room geometry. All new scan work follows the architecture's two recorded videos, timestamped poses and intrinsics, with geometry and station placement on the server.
+Existing `suggest` and `scan_start`/`scan_frame`/`scan_stop` helpers remain for detector diagnostics. They are not the updated iOS capture pipeline and cannot set room geometry. Gameplay scanning uses the implemented perimeter-pose and JPEG sweep endpoints below; recorded-video diagnostics remain separate.
 
 Set `GEMINI_API_KEY` only in ignored `server/.env`; `GEMINI_MODEL` selects the model (current adapter default: `gemini-3.1-flash-lite`). Restart after changes. `npm.cmd run test:gemini -- C:\path\to\photo.jpg` exercises the one-photo detector. Automated tests mock provider responses and make no external Gemini calls.
 

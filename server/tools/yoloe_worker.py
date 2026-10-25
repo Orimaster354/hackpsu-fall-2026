@@ -12,8 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / ".cache" / "yoloe"
 MODEL = "yoloe-26s-seg.pt"
 NOTE = "sticky note"
-CLASSES = [NOTE, "door", "window", "whiteboard", "light switch", "electrical outlet", "clock", "poster", "fire extinguisher", "air vent"]
-PROMPTS = ["yellow sticky note", "door", "window", "whiteboard", "light switch", "electrical outlet", "wall clock", "wall poster", "fire extinguisher", "wall air vent"]
+CLASSES = [NOTE, "door", "window", "whiteboard", "light switch", "electrical outlet", "clock", "poster", "fire extinguisher", "air vent",
+           "bookshelf", "desk", "table", "sofa", "chair", "plant", "television", "monitor", "refrigerator", "sink", "lamp", "picture", "backpack"]
+PROMPTS = ["yellow sticky note", "door", "window", "whiteboard", "light switch", "electrical outlet", "wall clock", "wall poster", "fire extinguisher", "wall air vent",
+           "bookshelf", "office desk", "table", "sofa", "chair", "potted plant", "television", "computer monitor", "refrigerator", "sink", "lamp", "picture", "backpack"]
 FPS = 1
 CONFIDENCE = 0.35
 MAX_RESULTS = 8
@@ -146,7 +148,8 @@ def load_model():
         from ultralytics import YOLOE
         torch.set_num_threads(min(4, os.cpu_count() or 1))
         model = YOLOE(MODEL)
-        model.set_classes(PROMPTS)
+        # Preserve the video lab vocabulary; sweep context uses the expanded list separately.
+        model.set_classes(PROMPTS[:10])
     return model
 
 
@@ -258,6 +261,45 @@ def analyze_video(model, spec):
             "timestampSource": "frame-index/fps fallback" if fallback_timestamps else "decoder presentation time"}
 
 
+def analyze_sweep(model, specs):
+    """Every uploaded native-orientation frame is kept for pose geometry; no image tracking or top-eight truncation."""
+    import cv2
+    frames = []
+    with contextlib.redirect_stdout(sys.stderr):
+        note_embeddings = model.get_text_pe([PROMPTS[0]])
+        context_embeddings = model.get_text_pe(PROMPTS[1:])
+    for spec in specs:
+        frame = cv2.imread(spec["path"], cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
+        if frame is None:
+            raise ValueError("Cannot decode an uploaded sweep JPEG.")
+        height, width = frame.shape[:2]
+        with contextlib.redirect_stdout(sys.stderr):
+            # Context classes must not compete with tiny notes for the detector's class score.
+            model.set_classes([PROMPTS[0]], note_embeddings)
+            note_result = model.predict(frame, device="cpu", imgsz=960, conf=0.55, iou=0.5, max_det=64, verbose=False)[0]
+            model.set_classes(PROMPTS[1:], context_embeddings)
+            context_result = model.predict(frame, device="cpu", imgsz=960, conf=0.35, iou=0.5, max_det=64, verbose=False)[0]
+        notes, context = [], []
+        for result, classes in [(note_result, [NOTE]), (context_result, CLASSES[1:])]:
+            if result.boxes is not None:
+                for box, score, class_id in zip(result.boxes.xyxyn.cpu().tolist(), result.boxes.conf.cpu().tolist(), result.boxes.cls.cpu().tolist()):
+                    x1, y1, x2, y2 = [max(0.0, min(1.0, float(v))) for v in box]
+                    label = classes[int(class_id)]
+                    area = (x2-x1)*(y2-y1)
+                    if area < (0.0001 if label == NOTE else 0.001) or area > (0.5 if label == NOTE else 0.9):
+                        continue
+                    item = {"label": label, "box": [x1, y1, x2-x1, y2-y1], "confidence": float(score)}
+                    if label == NOTE:
+                        if score >= 0.55:
+                            notes.append(item)
+                    else:
+                        context.append(item)
+        detections = [{**note, "context": nearby_context(note["box"], context, width, height)} for note in suppress_overlapping_notes(notes)]
+        frames.append({"index": spec["index"], "width": width, "height": height, "detections": detections})
+        emit({"type": "progress", "message": f"Sweep frame {spec['index']}: {len(detections)} note observations"})
+    return frames
+
+
 def main():
     emit({"type": "progress", "message": "Loading YOLOE-26 Small: sticky-note candidates and wall context on CPU..."})
     model = load_model()
@@ -265,10 +307,15 @@ def main():
         import numpy as np
         with contextlib.redirect_stdout(sys.stderr):
             model.predict(np.zeros((640, 640, 3), dtype=np.uint8), device="cpu", imgsz=640, verbose=False)
-        (CACHE / "ready.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES, "prompts": PROMPTS}), encoding="utf-8")
-        emit({"type": "ready", "model": MODEL, "classes": CLASSES})
+        (CACHE / "ready.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES[:10], "prompts": PROMPTS[:10]}), encoding="utf-8")
+        emit({"type": "ready", "model": MODEL, "classes": CLASSES[:10]})
         return
     job = json.load(sys.stdin)
+    if "frames" in job:
+        if not isinstance(job["frames"], list) or not 1 <= len(job["frames"]) <= 60:
+            raise ValueError("Expected up to 60 sweep frames.")
+        emit({"type": "sweep_result", "frames": analyze_sweep(model, job["frames"])})
+        return
     videos = job.get("videos")
     if not isinstance(videos, list) or len(videos) not in (1, 2) or [item.get("pass") for item in videos] not in (["overview"], ["overview", "edge"]):
         raise ValueError("Expected an overview video and an optional edge video.")
@@ -276,8 +323,8 @@ def main():
     passes = [analyze_video(model, spec) for spec in job["videos"]]
     emit({"type": "result", "model": MODEL, "elapsedMs": round((time.monotonic() - started) * 1000),
           "passes": passes, "analysis": {"engine": "yoloe", "device": "cpu", "fps": FPS,
-          "confidenceThreshold": CONFIDENCE, "classes": CLASSES, "maxObjectsPerPass": MAX_RESULTS,
-          "prompts": PROMPTS, "imageSize": 960, "candidateLabel": NOTE, "maxCandidatesPerClass": MAX_RESULTS,
+          "confidenceThreshold": CONFIDENCE, "classes": CLASSES[:10], "maxObjectsPerPass": MAX_RESULTS,
+          "prompts": PROMPTS[:10], "imageSize": 960, "candidateLabel": NOTE, "maxCandidatesPerClass": MAX_RESULTS,
           "contextMetric": "same-frame box gap / image diagonal; not meters",
           "deduplication": "short image-space overlap tracks; not persistent world identities"},
           "usage": None, "cleanupWarnings": []})
