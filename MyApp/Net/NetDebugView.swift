@@ -17,7 +17,10 @@ struct NetDebugView: View {
                         .keyboardType(.numbersAndPunctuation)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    LabeledContent("Status", value: statusText)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Status").font(.caption).foregroundStyle(.secondary)
+                        Text(statusText).fixedSize(horizontal: false, vertical: true)
+                    }
                     HStack {
                         Button("Connect") { connect() }
                         Spacer()
