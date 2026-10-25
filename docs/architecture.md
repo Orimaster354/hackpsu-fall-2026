@@ -119,7 +119,7 @@ Server only. Input: the two videos. Output JSON: `[{label, t, box:[x,y,w,h]}]` (
 
 ## Developer video diagnostic
 
-Developer diagnostic: `/dashboard/videos` on the server laptop accepts an overview and edge-walk MP4 (64 MiB / 120 s each), uploads both full clips to Gemini and validates per-video timestamps and boxes. Its loopback-only `GET /api/dashboard/video-test` returns model/configuration status; `POST` accepts multipart `overview`, `edge`, `overviewDuration`, `edgeDuration` with `X-Roomshift-Video-Test: 1`, streaming NDJSON progress/result/error records. Results retain pass identity and use `{label,t,box:[x,y,w,h]}` per pass. This diagnostic does not create gameplay setup or replace the documented host scan endpoints. Live two-video acceptance, pose association and geometry remain pending.
+Developer diagnostic: `/dashboard/videos` on the server laptop accepts an overview and edge-walk MP4 (256 MiB / 120 s each), uploads both full clips to Gemini and validates per-video timestamps and boxes. Its loopback-only `GET /api/dashboard/video-test` returns model/configuration status; `POST` accepts multipart `overview`, `edge`, `overviewDuration`, `edgeDuration` with `X-Roomshift-Video-Test: 1`, streaming NDJSON progress/result/error records. Results retain pass identity and use `{label,t,box:[x,y,w,h]}` per pass. This diagnostic does not create gameplay setup or replace the documented host scan endpoints. Live two-video acceptance, pose association and geometry remain pending.
 
 ## AR view (players)
 
