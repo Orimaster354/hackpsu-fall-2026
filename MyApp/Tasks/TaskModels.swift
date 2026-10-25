@@ -150,9 +150,12 @@ struct DialModel: MotionTaskModel {
 /// the phone flat resets it.
 struct SteadyModel: MotionTaskModel {
     static let holdSeconds = 4.0
-    /// Hand tremor is well under both limits, a wave or a bump is well over.
-    static let maxRotation = 0.5
-    static let maxAcceleration = 0.08
+    /// Hand tremor is well under both limits, a wave or a bump is well over. Relaxed a little from 0.5 rad/s and
+    /// 0.08 g, which were hard to hold for a full four seconds, but still far below a wave or a bump.
+    static let maxRotation = 0.7
+    static let maxAcceleration = 0.11
+    /// A wobble drains progress this many times faster than steady holding fills it (was 2).
+    static let drainFactor = 1.5
 
     private(set) var upright = false
     private(set) var steady = false
@@ -168,7 +171,7 @@ struct SteadyModel: MotionTaskModel {
         } else if steady {
             held = min(Self.holdSeconds, held + s.dt)
         } else {
-            held = max(0, held - s.dt * 2)
+            held = max(0, held - s.dt * Self.drainFactor)
         }
     }
 }
@@ -176,6 +179,8 @@ struct SteadyModel: MotionTaskModel {
 // MARK: Pattern (gesture)
 
 /// Hold the phone flat and tilt it to each shown direction in turn, back to level in between.
+/// "Tilt toward an arrow" always means lowering the edge it points to, as if rolling a ball that way: arrow left
+/// lowers the left edge, arrow right the right edge, arrow up the top edge, arrow down the bottom edge.
 /// Tilting the wrong way is ignored, so the tolerance is generous.
 struct PatternModel: MotionTaskModel {
     enum Direction: CaseIterable {
@@ -222,12 +227,14 @@ struct PatternModel: MotionTaskModel {
         }
     }
 
-    /// Top edge up (gravity.y < 0) is "away" from the player.
-    private static func direction(_ s: MotionSample) -> Direction? {
+    /// The edge that is lower than the rest has more of gravity pointing along its axis: right edge down is
+    /// gravity.x > 0, top edge down is gravity.y > 0. Both axes follow the same rule, so up and down match
+    /// left and right. (Up and down used to be swapped: the top edge had to be raised for the up arrow.)
+    static func direction(_ s: MotionSample) -> Direction? {
         if s.gravityX > tilt { return .right }
         if s.gravityX < -tilt { return .left }
-        if s.gravityY < -tilt { return .away }
-        if s.gravityY > tilt { return .toward }
+        if s.gravityY > tilt { return .away }
+        if s.gravityY < -tilt { return .toward }
         return nil
     }
 }

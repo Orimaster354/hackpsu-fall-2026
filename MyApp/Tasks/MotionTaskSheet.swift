@@ -210,7 +210,7 @@ struct MotionTaskSheet: View {
         case .tilt: "Hold the phone flat and tilt it to keep the ball in the ring for \(Int(BalanceModel.holdSeconds)) seconds. The ball keeps drifting away."
         case .hold: "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds."
         case .dial: "Hold the phone upright and turn it like a dial to line the needle up with each marker."
-        case .gesture: "Hold the phone flat and tilt it in the pattern shown, leveling it between moves."
+        case .gesture: "Hold the phone flat and tilt it in the pattern shown: lower the edge each arrow points to, then level the phone before the next move."
         }
     }
 
