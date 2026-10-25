@@ -121,6 +121,38 @@ check(wire(.deleteStation(id: "dial")) == #"{"delete":true,"id":"dial","t":"edit
 check(wire(.editStation(Station(id: "dial", name: "Door", tile: Tile(x: 0, y: 0), task: .dial, kind: .task))) ==
       #"{"station":{"id":"dial","kind":"task","name":"Door","task":"dial","tile":{"x":0,"y":0}},"t":"editStation"}"#, "editStation")
 
+// MARK: Lobby host id and scan uploads
+
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","hostId":"p1","players":#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+    check(snapshot.hostId == "p1", "lobby hostId")
+} else { print("FAIL lobby hostId"); failures += 1 }
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+    check(snapshot.hostId == nil, "lobby without hostId (older server)")
+} else { print("FAIL lobby without hostId"); failures += 1 }
+
+let scanPose = CameraPose(x: 2, y: 1.4, z: 2, qx: 0, qy: 0, qz: 0, qw: 1)
+let sortedEncoder = JSONEncoder()
+sortedEncoder.outputFormatting = [.sortedKeys]
+func json<T: Encodable>(_ value: T) -> String { String(data: try! sortedEncoder.encode(value), encoding: .utf8)! }
+
+roundTrip(PoseSample(t: 0.1, pose: scanPose), "PoseSample")
+roundTrip(CameraIntrinsics(fx: 1450, fy: 1450, cx: 960, cy: 540, width: 1920, height: 1080), "CameraIntrinsics")
+check(json(PerimeterUpload(poses: [PoseSample(t: 0.1, pose: scanPose)])) ==
+      #"{"poses":[{"qw":1,"qx":0,"qy":0,"qz":0,"t":0.1,"x":2,"y":1.4,"z":2}]}"#, "perimeter upload body")
+let frame = SweepFrame(index: 0, t: 0, pose: scanPose, jpegData: Data([0xFF, 0xD8]))
+check(json(frame) == #"{"index":0,"jpeg":"/9g=","pose":{"qw":1,"qx":0,"qy":0,"qz":0,"x":2,"y":1.4,"z":2},"t":0}"#, "sweep frame body")
+check(frame.jpegByteCount >= 2 && frame.jpegByteCount <= 3, "sweep frame size estimate")
+check(json(SweepUpload(vantage: Tile(x: 2, y: 2), intrinsics: CameraIntrinsics(fx: 1, fy: 2, cx: 3, cy: 4, width: 5, height: 6), frames: [])) ==
+      #"{"frames":[],"intrinsics":{"cx":3,"cy":4,"fx":1,"fy":2,"height":6,"width":5},"vantage":{"x":2,"y":2}}"#, "sweep upload body")
+check((try? JSONDecoder().decode(PerimeterResult.self, from: Data(#"{"ok":true,"cols":5,"rows":5,"edgeTiles":16}"#.utf8))) ==
+      PerimeterResult(ok: true, cols: 5, rows: 5, edgeTiles: 16), "perimeter result")
+check((try? JSONDecoder().decode(SweepResult.self, from: Data(#"{"ok":true,"notesFound":6,"stations":4,"warnings":[]}"#.utf8))) ==
+      SweepResult(ok: true, notesFound: 6, stations: 4, warnings: []), "sweep result")
+if let data = try? Data(contentsOf: URL(fileURLWithPath: "docs/fixtures/poses.json")) {
+    let samples = try? JSONDecoder().decode([PoseSample].self, from: data)
+    check(samples?.count == 201 && samples?.first?.t == 0, "docs/fixtures/poses.json decodes as perimeter samples")
+}
+
 // MARK: Shared fixture
 
 func fixture(_ path: String) -> ServerMessage? {

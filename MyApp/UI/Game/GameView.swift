@@ -8,6 +8,11 @@ struct GameView: View {
     @Environment(PositionCoordinator.self) private var position
     @AppStorage(SettingsKey.showEveryone) private var showEveryone = false
     @State private var taskStation: MapStation?
+    @State private var taskCameraInUse = false
+    /// The station whose task was just closed. It does not reopen until the player leaves its tile.
+    @State private var snoozedStationID: String?
+    /// Counts the times the crew brought the lights back while this player was watching.
+    @State private var lightRestores = 0
     @State private var showPosition: Bool
 
     /// `showPositionSheet` is for previews and screenshots.
@@ -22,18 +27,37 @@ struct GameView: View {
             VStack(spacing: 16) {
                 header.staggeredEntrance(0)
                 if session.isAlive {
-                    if inDark { LightsOutBanner() }
+                    if inDark { LightsOutBanner().transition(Motion.swap) }
                     mapSection.staggeredEntrance(1)
                 } else {
                     GhostView().staggeredEntrance(1)
                 }
             }
             .brightness(inDark ? -0.2 : 0)
+            .animation(.easeOut(duration: 0.3), value: inDark)
         } bar: {
             if session.isAlive { actions }
         }
-        .sheet(item: $taskStation) { station in
-            TaskPlaceholderView(station: station) { session.completeTask(at: station) }
+        .overlay { LightsEffect(isOut: inDark, restores: lightRestores) }
+        .onChange(of: session.lightsOut) { old, new in
+            if old, !new, session.role == .crew, session.isAlive, session.phase == .playing { lightRestores += 1 }
+        }
+        .sensoryFeedback(.success, trigger: lightRestores)
+        .sensoryFeedback(.warning, trigger: inDark) { _, now in now }
+        .onChange(of: lightRestores) {
+            AccessibilityNotification.Announcement("Lights restored. Tasks are back on.").post()
+        }
+        .fullScreenCover(item: $taskStation, onDismiss: { taskCameraInUse = false }) { station in
+            MotionTaskSheet(station: station) { session.completeTask(at: station) }
+                .onAppear { taskCameraInUse = true }
+        }
+        .onChange(of: session.canAttemptTasks) { _, allowed in
+            if !allowed { taskStation = nil }
+        }
+        .onChange(of: session.taskStationHere?.id) { _, _ in openTaskOnArrival() }
+        .onChange(of: session.canDoTaskHere) { _, _ in openTaskOnArrival() }
+        .onChange(of: taskStation) { old, new in
+            if new == nil, let old { snoozedStationID = old.id }
         }
         .sheet(isPresented: $showPosition) { PositionSheet() }
         .sensoryFeedback(.warning, trigger: session.isAlive) { old, new in old && !new }
@@ -41,6 +65,18 @@ struct GameView: View {
             guard session.error != nil, (try? await Task.sleep(for: .seconds(3))) != nil else { return }
             session.dismissError()
         }
+    }
+
+    /// With AR tracking, stepping onto an unfinished task tile opens its task (and the camera),
+    /// once per visit. In manual mode the player taps "Do task" instead, so a map tap never
+    /// launches a task by accident.
+    private func openTaskOnArrival() {
+        let here = session.taskStationHere
+        if here?.id != snoozedStationID { snoozedStationID = nil }
+        guard position.mode == .ar, taskStation == nil, !showPosition,
+              let station = here, station.id != snoozedStationID,
+              session.canDoTask(at: station) else { return }
+        taskStation = station
     }
 
     // MARK: Header and map
@@ -87,6 +123,13 @@ struct GameView: View {
         if let grid = session.grid {
             VStack(spacing: 10) {
                 positionPrompt
+                if inDark, taskStation == nil, !taskCameraInUse, position.mode == .ar,
+                   let provider = position.ar as? ARPositionProvider, provider.isSessionRunning {
+                    LightsOutARView(arView: provider.arView, grid: grid, fix: session.fixStation,
+                                    tracking: position.status == .tracking)
+                        .frame(height: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                }
                 RoomMapView(
                     grid: grid,
                     stations: session.stations,
@@ -117,20 +160,40 @@ struct GameView: View {
                 emphasized: !placed
             )
         } else {
-            switch position.status {
-            case .searching: PromptLine(icon: "viewfinder", text: "Finding your place in the room…", emphasized: true)
-            case .tracking: PromptLine(icon: "checkmark.circle.fill", text: "AR is tracking you", emphasized: false)
-            case let .failed(reason): PromptLine(icon: "exclamationmark.triangle.fill", text: reason, emphasized: true)
-            case .idle: EmptyView()
+            // The precise reason (map missing, download failed, relocalizing, timed out, interrupted, outside the
+            // grid, ...) rather than one generic line.
+            let detail = position.arDetail
+            if detail != .idle {
+                PromptLine(icon: detail.icon, text: detail.message, emphasized: detail != .tracking)
             }
         }
-        if position.offerManual {
+        if position.mode == .ar, position.offerManual {
             HStack(spacing: 12) {
                 Text("Can't find your place in the room.")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
+                Button { position.retryAR() } label: {
+                    Text("Retry AR").padding(.horizontal, 12)
+                }
+                .buttonStyle(.game(.primary))
+                .fixedSize()
                 Button { position.useManual() } label: {
-                    Text("Use manual tiles").padding(.horizontal, 16)
+                    Text("Use manual tiles").padding(.horizontal, 12)
+                }
+                .buttonStyle(.game(.secondary))
+                .fixedSize()
+            }
+            .padding(12)
+            .gameCard(radius: Theme.Radius.control)
+        } else if position.mode == .manual, position.canUseAR, position.arDetail.canRetry {
+            // Manual tiles are working, but AR gave up. Say why and let the player try again.
+            HStack(spacing: 12) {
+                Text(position.arDetail.message)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                Spacer(minLength: 8)
+                Button { position.retryAR() } label: {
+                    Text("Retry AR").padding(.horizontal, 12)
                 }
                 .buttonStyle(.game(.secondary))
                 .fixedSize()
@@ -183,7 +246,7 @@ struct GameView: View {
 
     @ViewBuilder private var crewControls: some View {
         if session.canFixHere, let fix = session.fixStation {
-            HoldToConfirmButton(title: "Hold to fix the lights", duration: 3) { session.fix(fix) }
+            HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) { session.fix(fix) }
                 .accessibilityIdentifier("fixButton")
         } else if let station = session.taskStationHere {
             if session.completedStationIDs.contains(station.id) {
@@ -230,6 +293,10 @@ private struct LightsOutBanner: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .gameCard(radius: Theme.Radius.control)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                    .strokeBorder(Theme.Palette.warning.opacity(0.55), lineWidth: 1.5)
+            }
             .brightness(0.2)
     }
 }

@@ -8,6 +8,7 @@ struct GhostView: View {
             Image(systemName: "person.fill.xmark")
                 .font(.system(size: 52, weight: .bold))
                 .foregroundStyle(Theme.Palette.textSecondary)
+                .floating()
             Text("You were eliminated")
                 .font(.system(.title2, design: .rounded, weight: .bold))
             VStack(spacing: 10) {
@@ -23,5 +24,35 @@ struct GhostView: View {
         .frame(maxWidth: .infinity)
         .gameCard()
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// One red impact followed by a fade, kept above stage transitions (including a final kill).
+struct DeathEffect: View {
+    let trigger: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var intensity = 0.0
+
+    var body: some View {
+        ZStack {
+            Color.red.opacity(0.32)
+            RadialGradient(colors: [.clear, .red.opacity(0.95)], center: .center,
+                           startRadius: 40, endRadius: 430)
+            Label("ELIMINATED", systemImage: "person.fill.xmark")
+                .font(.system(.largeTitle, design: .rounded, weight: .heavy))
+                .foregroundStyle(.white)
+                .shadow(color: .black, radius: 8)
+        }
+        .ignoresSafeArea()
+        .opacity(intensity)
+        .task(id: trigger) {
+            guard trigger > 0 else { return }
+            withTransaction(Transaction(animation: nil)) { intensity = 1 }
+            do {
+                // Give an interrupted task sheet time to dismiss before fading the impact.
+                try await Task.sleep(for: .milliseconds(400))
+                withAnimation(.easeOut(duration: reduceMotion ? 0.6 : 1.2)) { intensity = 0 }
+            } catch { intensity = 0 }
+        }
     }
 }

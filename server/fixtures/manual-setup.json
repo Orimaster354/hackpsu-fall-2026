@@ -20,7 +20,7 @@
   "stations": [
     {"id":"dial","name":"Door dial","tile":{"x":0,"y":0},"task":"dial","kind":"task"},
     {"id":"hold","name":"Desk hold","tile":{"x":4,"y":0},"task":"hold","kind":"task"},
-    {"id":"tilt","name":"Sofa tilt","tile":{"x":2,"y":4},"task":"tilt","kind":"task"},
+    {"id":"tilt","name":"Sofa hammer","tile":{"x":2,"y":4},"task":"hammer","kind":"task"},
     {"id":"fix","name":"Lights","tile":{"x":0,"y":2},"task":"hold","kind":"fix"},
     {"id":"emergency","name":"Emergency","tile":{"x":2,"y":2},"task":"hold","kind":"emergency"}
   ]

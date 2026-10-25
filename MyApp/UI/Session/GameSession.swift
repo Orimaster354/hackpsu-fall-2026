@@ -24,6 +24,10 @@ final class GameSession {
     private(set) var hasMap = false
     private(set) var setupStep: SetupStep?
     private(set) var setupConfirmed = false
+    /// Counts every `setup` event received. It goes up even when the new grid equals the old one, which is what
+    /// happens when the host repeats a perimeter walk with the same poses. A scan step waits for this to change
+    /// instead of comparing grids.
+    private(set) var setupRevision = 0
 
     // Game
     private(set) var phase: GamePhase = .lobby
@@ -58,8 +62,9 @@ final class GameSession {
 
     // MARK: Derived room state
 
-    /// The host is the creator, who joins first (see the gaps note in SessionModels.swift).
-    var hostID: String? { players.first?.id }
+    /// From the server's `lobby.hostId` when known, else the creator who joins first.
+    private(set) var serverHostID: String?
+    var hostID: String? { serverHostID ?? players.first?.id }
     var isHost: Bool { myID != nil && myID == hostID }
 
     var stage: Stage {
@@ -156,6 +161,7 @@ final class GameSession {
         disconnect()
         roomCode = nil
         myID = nil
+        serverHostID = nil
         players = []
         grid = nil
         stations = []
@@ -253,8 +259,11 @@ final class GameSession {
             self.stations = stations
             setupStep = nil
             setupConfirmed = false
+            setupRevision += 1
         case let .setupStatus(confirmed):
             setupConfirmed = confirmed
+        case let .host(id):
+            serverHostID = id
         case let .role(role):
             self.role = role
         case let .state(snapshot):

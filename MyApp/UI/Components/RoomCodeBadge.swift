@@ -19,6 +19,7 @@ struct RoomCodeBadge: View {
                         .minimumScaleFactor(0.4)
                         .lineLimit(1)
                         .foregroundStyle(Theme.Palette.textPrimary)
+                        .shadow(color: Theme.Palette.neon.opacity(0.55), radius: 8)
                         .frame(maxWidth: tileLetterSize * 1.4)
                         .frame(height: tileLetterSize * 1.8)
                         .gameCard(radius: Theme.Radius.control)

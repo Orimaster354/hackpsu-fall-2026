@@ -24,10 +24,10 @@ enum MockFixture {
 
         let stations = [
             MapStation(id: "s1", name: "Kitchen counter", tile: MapTile(x: 0, y: 2), task: .hold, kind: .task),
-            MapStation(id: "s2", name: "Sofa", tile: MapTile(x: 3, y: 0), task: .tilt, kind: .task),
+            MapStation(id: "s2", name: "Sofa", tile: MapTile(x: 3, y: 0), task: .hammer, kind: .task),
             MapStation(id: "s3", name: "Front door", tile: MapTile(x: 6, y: 3), task: .dial, kind: .task),
             MapStation(id: "s4", name: "Desk", tile: MapTile(x: 4, y: 5), task: .shake, kind: .task),
-            MapStation(id: "s5", name: "Bookshelf", tile: MapTile(x: 0, y: 5), task: .hold, kind: .task),
+            MapStation(id: "s5", name: "Bookshelf", tile: MapTile(x: 0, y: 5), task: .gesture, kind: .task),
             MapStation(id: "f1", name: "Breaker box", tile: MapTile(x: 6, y: 5), task: .hold, kind: .fix),
             MapStation(id: "e1", name: "Meeting spot", tile: center, task: .hold, kind: .emergency),
         ]

@@ -31,11 +31,35 @@ Flow to test with four devices: host creates a room; others join by code; host r
 - Not changed: no UI shows `ready` or `connected` yet, and nothing calls `setReady`. That is B's call.
 
 ## Still open
-- **Scan pipeline (Phase 3)** is not built on the server, so real rooms have no grid. Only `start:manual` rooms can reach Start.
-- **Host id:** `lobby` has no `hostId`; the UI uses `players[0]`.
+- **Scan pipeline:** the server routes exist. A real room still needs YOLOE installed on the server laptop (`server/README.md`) and an iPhone scan; `start:manual` rooms remain the quickest way to reach Start.
+- **Host id:** the server now sends `lobby.hostId`. `LobbySnapshot.hostId` decodes it, the adapter emits `.host(id:)`, and `GameSession.hostID` prefers it (falls back to `players[0]`). Untested on a device.
 - **Not in the contract yet:** server time on `state`, per-player completed stations, impostor id on `result`, `leave`. See "Open contract questions" in `docs/tasks.md`.
 - **Reconnect loop risk:** the server closes a replaced socket with code 4000, and the client may try to reconnect after it. Untested.
-- **A (AR):** pass `position:` and `startRoomScan:` in `ContentView` when ready.
+- **A (AR):** done in `ContentView` (position provider and the Scan room button). Not device-verified. B should reword the lobby setup card, which still describes the old two-video scan.
+- **Phase 4 (relocalization on a second phone)** is not covered by any test yet.
+
+## Sticky-note scan integration (pivot)
+The scan is a perimeter walk plus one 360-degree sweep, with yellow sticky notes on the walls. Contract: `docs/architecture.md` ("Sticky-note scan"). App-side spec for A: `docs/ar-capture.md`. Gemini prompt: `server/prompts/station-planning.md`.
+
+| Piece | Owner | State |
+|---|---|---|
+| Upload models and `ScanClient` (`MyApp/Models/ScanModels.swift`, `MyApp/Net/ScanClient.swift`) | D | written; A's Mac checks compiled an earlier version; the off-main-actor encode is new and uncompiled |
+| Reference geometry, synthetic sweep, `check-geometry.js`, `contract-check.js` (`docs/fixtures/postit/`) | D | pass in Node; the contract check passes against C's server |
+| `POST /scan/:room/perimeter` and `/sweep`, polygon and grid, per-frame YOLOE, placement, selection | C | built; 76 server tests pass; `node server/tools/testSweep.js --fixture` gives 6 notes, 3 task + 1 fix + emergency. Real YOLOE and a real room not yet verified |
+| Perimeter walk, vantage picker, sweep capture, ARWorldMap save, live tile reporting | A | built (`MyApp/AR/`), Mac checks written; not device-verified |
+| Host setup review screen | B | exists; now talks to the real server through `LiveConnection` |
+| Core Motion tasks: shake, balance, dial, steady, tilt pattern (`MyApp/Tasks/`) | B | merged from `feature/ios-gameplay`; not device-verified |
+
+Integration order and status:
+1. Perimeter endpoint against `docs/fixtures/poses.json`: **done** (contract check passes).
+2. D debug buttons for perimeter and sweep in `NetDebugView`: **written**, untried on a device.
+3. Sweep endpoint with detections injected: **done** (`testSweep.js --fixture`). The real YOLOE call needs the Python runtime: see `server/README.md`.
+4. A's capture with real poses and frames: **built, awaiting the iPhone test** in `Tests/ARScanChecks/README.md`.
+5. Real room: record the note size, distance and lighting that work. Main risk of the pivot, still open.
+
+Server-side notes for C: when YOLOE is not installed, `POST /scan/:room/sweep` returns `SCAN_FAILED` (422) with the message "YOLOE is not ready". A distinct code such as `DETECTOR_UNAVAILABLE` (503) would let clients tell it apart from a bad scan. A frame with detections must be exactly the size the intrinsics describe or the server returns `SCAN_UPLOAD_INVALID`.
+
+Risks: small notes at 3 to 4 m are only a few dozen pixels; the ARKit image orientation and intrinsics must match the JPEG; heading drift can move a note to a neighboring tile near tile boundaries (accepted, the host edits); fewer than 4 notes found means the host places the rest by hand.
 
 ## Demo checklist (draft)
 Before: laptop on the phone hotspot, `npm run start:manual` (until scan exists), LAN IP in each phone's Settings, all phones on the hotspot, Info settings added.

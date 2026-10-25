@@ -75,13 +75,15 @@ struct SetupReviewView: View {
     }
 
     private func newStation(at tile: MapTile) -> MapStation {
-        let kinds: [TaskKind] = [.hold, .tilt, .dial, .shake]
         let count = session.taskStations.count
+        // A new station gets a task no other station has, so a room never repeats a challenge.
+        let used = Set(session.taskStations.map { $0.task })
+        let task = TaskKind.availableTasks.first { !used.contains($0) } ?? TaskKind.availableTasks[count % TaskKind.availableTasks.count]
         return MapStation(
             id: "u-\(UUID().uuidString.prefix(6).lowercased())",
             name: "Station \(count + 1)",
             tile: tile,
-            task: kinds[count % kinds.count],
+            task: task,
             kind: .task
         )
     }
@@ -96,10 +98,10 @@ struct SetupReviewView: View {
                 Spacer(minLength: 8)
                 if station.kind == .task {
                     Picker("Task", selection: Binding(
-                        get: { station.task },
+                        get: { station.task == .tilt ? .hold : station.task },
                         set: { var edited = station; edited.task = $0; session.editStation(edited) }
                     )) {
-                        ForEach(TaskKind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                        ForEach(TaskKind.availableTasks, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                     }
                     .labelsHidden()
                 }
@@ -158,7 +160,7 @@ struct SetupReviewView: View {
                         in: RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous)
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.gameRow)
                 .accessibilityLabel("\(station.name), \(station.spokenKind), column \(station.tile.x + 1), row \(station.tile.y + 1)")
                 .accessibilityAddTraits(station.id == selectedID ? [.isButton, .isSelected] : .isButton)
             }

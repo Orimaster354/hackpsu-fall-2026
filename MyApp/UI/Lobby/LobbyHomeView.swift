@@ -55,7 +55,7 @@ struct LobbyHomeView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 48)
+            .padding(.top, 32)
             .padding(.bottom, 16)
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -68,11 +68,7 @@ struct LobbyHomeView: View {
 
     private var header: some View {
         VStack(spacing: 12) {
-            Image(systemName: "moon.stars.fill")
-                .font(.system(size: 44, weight: .bold))
-                .foregroundStyle(Theme.Palette.crew)
-            Text("IRL Among Us")
-                .font(.system(.largeTitle, design: .rounded, weight: .heavy))
+            BlindspotLogo()
             Text("Find the impostor in a real room.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.Palette.textSecondary)

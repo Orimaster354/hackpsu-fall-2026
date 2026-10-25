@@ -4,7 +4,7 @@ import Foundation
 // and the implemented server (server/rooms.js, server/game.js). Do not rename fields here
 // without updating the doc and telling the other owners.
 
-struct Tile: Codable, Hashable {
+nonisolated struct Tile: Codable, Hashable, Sendable {
     var x: Int
     var y: Int
 }
@@ -22,7 +22,7 @@ struct Grid: Codable, Hashable {
 }
 
 enum TaskType: String, Codable, Hashable {
-    case shake, tilt, dial, hold, gesture
+    case shake, tilt, dial, hold, gesture, hammer
 }
 
 enum StationKind: String, Codable, Hashable {

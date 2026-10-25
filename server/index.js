@@ -8,12 +8,16 @@ const { handleMap } = require('./maps');
 const { createGeminiClient } = require('./gemini');
 const { LiveScan } = require('./liveScan');
 const { createVideoTestHandler } = require('./videoLab');
+const { createScanHandler } = require('./scans');
+const { ScanMonitor } = require('./scanMonitor');
 
 function createAppServer(options = {}) {
   const rooms = new RoomManager(options);
   const suggest = options.suggest || createGeminiClient();
   const startedAt = Date.now();
   const videoTest = createVideoTestHandler(options);
+  const scanMonitor = options.scanMonitor || new ScanMonitor();
+  const scan = createScanHandler(rooms,{...options,scanMonitor});
   const dashboardAssets = new Map([
     ['/dashboard', ['index.html', 'text/html; charset=utf-8']],
     ['/dashboard/', ['index.html', 'text/html; charset=utf-8']],
@@ -25,6 +29,7 @@ function createAppServer(options = {}) {
     ['/dashboard/videos', ['videos.html', 'text/html; charset=utf-8']],
     ['/dashboard/videos.js', ['videos.js', 'text/javascript; charset=utf-8']],
     ['/dashboard/videos.css', ['videos.css', 'text/css; charset=utf-8']],
+    ['/dashboard/app-scans.js', ['app-scans.js', 'text/javascript; charset=utf-8']],
   ].map(([route, [file, type]]) => [route, { type, body: fs.readFileSync(path.join(__dirname, 'dashboard', file)) }]));
   const testVideoPath = options.testVideoPath || process.env.LIVE_SCAN_TEST_VIDEO;
   if (testVideoPath) {
@@ -36,11 +41,27 @@ function createAppServer(options = {}) {
     let route;
     try { route = new URL(request.url, 'http://localhost').pathname; }
     catch { response.writeHead(400); response.end(); return; }
+    if(route==='/api/dashboard/scans' || route.startsWith('/api/dashboard/scans/')){
+      response.setHeader('Cache-Control','no-store');response.setHeader('X-Content-Type-Options','nosniff');
+      if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.socket.remoteAddress)){
+        response.writeHead(403);response.end('Scan monitor is laptop-only.');return;
+      }
+      if(request.method!=='GET'){response.writeHead(405);response.end();return;}
+      if(route==='/api/dashboard/scans'){
+        response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify(scanMonitor.snapshot()));return;
+      }
+      const match=/^\/api\/dashboard\/scans\/([a-f0-9-]{36})\/frames\/(\d+)$/.exec(route);
+      const bytes=match && scanMonitor.preview(match[1],Number(match[2]));
+      if(!bytes){response.writeHead(404);response.end();return;}
+      response.writeHead(200,{'content-type':'image/jpeg','content-length':bytes.length});response.end(bytes);return;
+    }
     if (route === '/api/dashboard/video-test') {
       void videoTest(request, response);
       return;
     }
     const mapRoute = /^\/map\/([A-Z]{4})$/.exec(route);
+    const scanRoute = /^\/scan\/([A-Z]{4})\/(perimeter|sweep)$/.exec(route);
+    if (scanRoute) { void scan(request,response,scanRoute[1],scanRoute[2]); return; }
     if (mapRoute) {
       void handleMap(request, response, rooms, mapRoute[1], options.maxMapBytes);
       return;
@@ -219,6 +240,7 @@ function createAppServer(options = {}) {
       });
     },
     close() {
+      scan.close();
       for (const room of rooms.rooms.values()) room.game.dispose();
       for (const room of rooms.rooms.values()) room.liveScan?.stop('server_stopped');
       for (const socket of sockets.clients) socket.terminate();
@@ -243,7 +265,7 @@ if (require.main === module) {
     const appOptions = process.argv.includes('--manual-fixture')
       ? { manualSetup: JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'manual-setup.json'), 'utf8')) } : {};
     createAppServer(appOptions).listen(port).then((address) => {
-      console.log(`ROOMSHIFT server listening on 0.0.0.0:${address.port}`);
+      console.log(`Blindspot server listening on 0.0.0.0:${address.port}`);
       if (appOptions.manualSetup) console.log('Developer manual fixture enabled; host must confirm setup.');
     }).catch((error) => {
       console.error(error);

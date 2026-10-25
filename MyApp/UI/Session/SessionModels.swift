@@ -80,7 +80,10 @@ struct MapGrid: Equatable {
 
 /// docs: `TaskType`. Raw values are the wire strings.
 enum TaskKind: String, CaseIterable {
-    case shake, tilt, dial, hold, gesture
+    case shake, tilt, dial, hold, gesture, hammer
+
+    /// Tilt stays readable for older rooms; it is no longer offered or assigned.
+    static var availableTasks: [TaskKind] { allCases.filter { $0 != .tilt } }
 }
 
 /// docs: `Station`.
@@ -177,6 +180,8 @@ enum ServerEvent: Equatable {
     /// The server's `setupConfirmed` flag, sent by the network adapter right after each `lobby` and
     /// `setup`. The mock does not send it, so the session's local assumption still applies there.
     case setupStatus(confirmed: Bool)
+    /// The room creator's id from `lobby.hostId`. Without it the session falls back to `players[0]`.
+    case host(id: String)
     case role(PlayerRole)
     case state(GameSnapshot)
     case killed

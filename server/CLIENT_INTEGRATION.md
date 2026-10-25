@@ -1,14 +1,16 @@
 # Owner D backend handoff
 
-Status after merging latest main: `MyApp/Net`, `MyApp/Models` and B's `MyApp/UI` are present and preserved unchanged. All 42 backend tests pass. Swift Codable compilation/round-trips and physical iPhone connectivity are **not verified here**. Do not mark D's Phase 0 checkboxes complete from backend tests.
+Latest branch-specific scan audit: [ARKIT_HANDOFF.md](ARKIT_HANDOFF.md). `feature/arkit` at `f7f49a7` implements capture/upload and fixes several older client gaps described below. The local backend implements both scan endpoints; source inspection and 76 backend tests pass, but device acceptance remains pending. The older main-checkout findings below are historical, not proof those gaps remain on the ARKit branch.
 
-Current client gaps for D: `LobbySnapshot.grid` in `MyApp/Models/Messages.swift` is required (`Grid`) but new rooms send null; make it optional and update consumers. Both lobby and setup need the approved `setupConfirmed` flag, which the current models omit. Remove obsolete `setRoom` use. The debug screen can send start but has no confirm-setup control; add a host confirmation action before starting. `NetDebugView` is no longer the root screen in main, so D must explicitly run it locally for this integration check. The separate Connect/Disconnect rows from main are preserved. No iOS files were changed by the backend rebase.
+Status after the Owner C integration fixes: `MyApp/Net`, `MyApp/Models` and B's `MyApp/UI` are present and preserved unchanged. All 45 backend tests pass. Swift Codable compilation/round-trips and physical iPhone connectivity are **not verified here**. Do not mark D's Phase 0 checkboxes complete from backend tests.
+
+Current client gaps for D: `LobbySnapshot.grid` in `MyApp/Models/Messages.swift` is required (`Grid`) but new rooms send null; make it optional and update consumers. Lobby also needs the approved `hostId` field; both lobby and setup need `setupConfirmed`, which the current models omit. Remove obsolete `setRoom` use. The debug screen can send start but has no confirm-setup control; add a host confirmation action before starting. `NetDebugView` is no longer the root screen in main, so D must explicitly run it locally for this integration check. The separate Connect/Disconnect rows from main are preserved. No iOS files were changed by the backend integration fixes.
 
 Main now mounts B's `RootView()`, whose default initializer creates a mock session. D must supply an actual `GameSession` adapter backed by a retained `GameClient` and map `ClientIntent` / `ServerEvent` to the wire events. The full UI already has host setup confirmation, but it currently trusts local state; map server `setupConfirmed` back into it. Carry wire `ready`/`connected` into lobby UI state and use the same manual-tile path. The mock UI is useful for visual work but does not prove any connection to the laptop. No Swift files were edited during this merge.
 
 ## Transport and identity
 
-Connect to `ws://<laptop-LAN-IP>:8080/ws`. All frames are JSON text with a top-level `t` discriminator. Model fields sit beside `t`, never inside a `data` or `state` wrapper. All enum values are case-sensitive. The client that sends `create` is the host; retain that local flag with the returned room/player ID for reconnect. Server permissions are authoritative.
+Connect to `ws://<laptop-LAN-IP>:8080/ws`. All frames are JSON text with a top-level `t` discriminator. Model fields sit beside `t`, never inside a `data` or `state` wrapper. All enum values are case-sensitive. Compare `lobby.hostId` with your joined player ID for host controls. Server permissions are authoritative; disconnect does not transfer host ownership.
 
 ```json
 {"t":"create","name":"Host"}
@@ -19,9 +21,11 @@ Connect to `ws://<laptop-LAN-IP>:8080/ws`. All frames are JSON text with a top-l
 
 Reconnect preserves the player's ID and role. Send the same room/name/player ID. The server sends `joined`, current `setup` if available, `lobby`, and during/after play the player's private `role`, public `state`, and final `result` if ended. A replaced socket loses authority. Disconnected players remain registered and count toward the room's capacity.
 
+The displaced socket closes with code `4000`, reason `Reconnected elsewhere`. D must treat this as terminal for automatic retries, requiring an explicit Connect action to take over again. Retrying it automatically can cause two clients sharing an identity to replace each other indefinitely. Normal network drops still reconnect. Backend tests verify replacement ownership, protection against stale close callbacks, rejected reconnects, and standard ping/pong; they do not implement the Swift retry fix. See [error handling reference](ERROR_CODES.md).
+
 ## Setup and readiness
 
-`lobby` has `players`, `grid: Grid?`, `stations`, `hasMap: Bool`, and `setupConfirmed: Bool`. `grid` is null until the server produces setup. `setup` has `grid: Grid`, `stations`, and `setupConfirmed: Bool`. The flag is necessary after reconnect: confirmed setup is locked.
+`lobby` has `hostId: String`, `players`, `grid: Grid?`, `stations`, `hasMap: Bool`, and `setupConfirmed: Bool`. `grid` is null until the server produces setup. `setup` has `grid: Grid`, `stations`, and `setupConfirmed: Bool`. The flag is necessary after reconnect: confirmed setup is locked.
 
 Player has `id`, `name`, `tile: Tile?`, `alive: Bool`, `tileSource: "ar"|"manual"`, `ready: Bool`, and `connected: Bool`. Ready status remains supported as approved; it is advisory, not an extra start requirement. Disconnect clears ready. Reconnect requires readying again.
 
