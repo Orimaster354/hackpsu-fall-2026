@@ -4,6 +4,31 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('same-timestamp notes render separate close-ups and grouped observation counts', async () => {
+  const elements = new Map(); const crops = [];
+  const make = () => ({ children: [], dataset: {}, textContent: '', addEventListener() {}, setAttribute() {},
+    replaceChildren() { this.children = []; }, append(item) { this.children.push(item); },
+    prepend(item) { this.children.unshift(item); },
+    getContext() { return { fillRect() {}, drawImage(...args) { crops.push(args.slice(1, 5)); } }; } });
+  const element = (id) => { if (!elements.has(id)) elements.set(id, make()); return elements.get(id); };
+  const context = { document: { getElementById: element, createElement: make },
+    window: { addEventListener() {} },
+    Image: class { constructor() { this.width = 1000; this.height = 1000; } set src(value) { this.onload(); } },
+    fetch: async () => ({ ok: true, json: async () => ({ configured: true, model: 'test-model' }) }),
+    testResult: { passes: [{ pass: 'overview', detections: [0.2, 0.5, 0.8].map((x) => ({
+      label: 'sticky note', t: 10, box: [x, 0.3, 0.03, 0.03], confidence: 0.8, frameJpeg: 'fixture', observationCount: 2,
+    })) }], model: 'test-model', elapsedMs: 1 },
+  };
+  vm.createContext(context);
+  await vm.runInContext(fs.readFileSync(path.join(__dirname, '../dashboard/videos.js'), 'utf8'), context);
+  vm.runInContext('showResult(testResult)', context);
+  const buttons = element('overview-detections').children;
+  assert.equal(buttons.length, 3); assert.equal(crops.length, 3);
+  assert.equal(new Set(crops.map((crop) => crop[0])).size, 3);
+  assert.ok(buttons.every((button) => button.children[0].className === 'note-crop'));
+  assert.ok(buttons.every((button) => button.textContent.includes('seen in 2 sampled frame(s)')));
+});
+
 test('MOV selection enables Analyze even when the browser cannot preview the codec', async () => {
   const elements = new Map();
   function element(id) {

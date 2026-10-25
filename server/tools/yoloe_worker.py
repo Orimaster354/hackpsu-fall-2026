@@ -32,8 +32,47 @@ def nearby_context(note_box, elements, width, height):
 
 
 def final_notes(tracks):
-    return sorted([track["best"] for track in tracks if track["label"] == NOTE],
+    return sorted([{**track["best"], "observationCount": track.get("observationCount", 1)}
+                   for track in tracks if track["label"] == NOTE],
                   key=lambda item: item["confidence"], reverse=True)[:MAX_RESULTS]
+
+
+def align_tracks(tracks, previous, current, timestamp):
+    """Compensate supported camera motion in image space; not physical identity."""
+    import cv2
+    import numpy as np
+    if previous is None or previous.shape != current.shape:
+        return False
+    orb = cv2.ORB_create(nfeatures=2000, fastThreshold=7)
+    source_keys, source_desc = orb.detectAndCompute(previous, None)
+    target_keys, target_desc = orb.detectAndCompute(current, None)
+    if source_desc is None or target_desc is None or len(target_desc) < 2:
+        return False
+    matches = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(source_desc, target_desc, k=2)
+    good = [pair[0] for pair in matches if len(pair) == 2 and pair[0].distance < 0.7*pair[1].distance]
+    if len(good) < 8:
+        return False
+    source = np.float32([source_keys[item.queryIdx].pt for item in good])
+    target = np.float32([target_keys[item.trainIdx].pt for item in good])
+    matrix, inliers = cv2.findHomography(source, target, cv2.RANSAC, 3)
+    if matrix is None or inliers is None or inliers.sum() < 8 or inliers.mean() < 0.4 or not np.isfinite(matrix).all():
+        return False
+    height, width = current.shape
+    for track in tracks:
+        if timestamp - track["lastSeen"] > 2.1:
+            continue
+        x, y, w, h = track["lastBox"]
+        points = np.float32([[[x*width, y*height], [(x+w)*width, y*height],
+                              [x*width, (y+h)*height], [(x+w)*width, (y+h)*height]]])
+        mapped = cv2.perspectiveTransform(points, matrix)[0]
+        low, high = mapped.min(axis=0)/[width, height], mapped.max(axis=0)/[width, height]
+        size = high-low
+        area_ratio = size[0]*size[1]/max(w*h, 1e-9)
+        track["matchable"] = bool(np.isfinite(mapped).all() and np.all(size > 0)
+                                  and np.all(low >= 0) and np.all(high <= 1) and 0.25 <= area_ratio <= 4)
+        if track["matchable"]:
+            track["lastBox"] = [float(low[0]), float(low[1]), float(size[0]), float(size[1])]
+    return True
 
 
 def suppress_overlapping_notes(notes):
@@ -78,18 +117,20 @@ def iou(a, b):
 
 def remember(tracks, candidate):
     matches = [track for track in tracks if track["label"] == candidate["label"]
+               and track.get("matchable", True)
                and track["lastSeen"] < candidate["t"]
                and candidate["t"] - track["lastSeen"] <= 2.1
                and iou(track["lastBox"], candidate["box"]) >= 0.3]
     if matches:
         track = max(matches, key=lambda item: iou(item["lastBox"], candidate["box"]))
         track["lastSeen"] = candidate["t"]
+        track["observationCount"] = track.get("observationCount", 1) + 1
         track["lastBox"] = candidate["box"]
         if candidate["confidence"] > track["best"]["confidence"]:
             track["best"] = candidate
     else:
         track = {"label": candidate["label"], "lastSeen": candidate["t"],
-                 "lastBox": candidate["box"], "best": candidate}
+                 "lastBox": candidate["box"], "best": candidate, "observationCount": 1}
         tracks[:] = diverse_best(tracks + [track], 64, 64, lambda item: item["best"]["confidence"])
 
 
@@ -126,6 +167,7 @@ def analyze_video(model, spec):
     analyzed = 0
     last_t = -1.0
     fallback_timestamps = False
+    previous_gray = None
     diagnostics = {name: {} for name in ["proposalsByClass", "belowThresholdByClass", "areaRejectedByClass", "acceptedByClass", "selectedByClass"]}
     def count(group, label):
         diagnostics[group][label] = diagnostics[group].get(label, 0) + 1
@@ -145,6 +187,11 @@ def analyze_video(model, spec):
             if not ok:
                 raise ValueError("A sampled video frame could not be decoded.")
             next_sample = t + 1.0 / FPS
+            ratio = min(1.0, 960.0 / max(frame.shape[:2]))
+            thumbnail = cv2.resize(frame, (round(frame.shape[1]*ratio), round(frame.shape[0]*ratio))) if ratio < 1 else frame
+            gray = cv2.cvtColor(thumbnail, cv2.COLOR_BGR2GRAY)
+            align_tracks(tracks, previous_gray, gray, t)
+            previous_gray = gray
             with contextlib.redirect_stdout(sys.stderr):
                 results = model.predict(frame, device="cpu", imgsz=960, conf=0.20,
                                         iou=0.5, max_det=64, verbose=False)
@@ -152,8 +199,6 @@ def analyze_video(model, spec):
             result = results[0]
             if result.boxes is not None and len(result.boxes):
                 height, width = frame.shape[:2]
-                ratio = min(1.0, 960.0 / max(width, height))
-                thumbnail = cv2.resize(frame, (round(width * ratio), round(height * ratio))) if ratio < 1 else frame
                 success, encoded = cv2.imencode(".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 72])
                 if not success:
                     raise ValueError("Cannot encode a detection preview.")
