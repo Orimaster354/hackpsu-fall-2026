@@ -41,8 +41,8 @@ for (const pass of passes) {
     for (const name of passes) { $(`${name}-detections`).replaceChildren(); if (clips[name]) clips[name].selected = null; draw(name); }
     $('error').hidden = true;
     if (!file) { video.removeAttribute('src'); video.load(); $(`${pass}-info`).textContent = 'No video selected'; controls(); return; }
-    if (!file.name.toLowerCase().endsWith('.mp4') || file.size > 64 * 1024 * 1024 || file.size < 13) {
-      $(`${pass}-info`).textContent = 'Choose an MP4 no larger than 64 MiB.'; controls(); return;
+    if (!file.name.toLowerCase().endsWith('.mp4') || file.size > 256 * 1024 * 1024 || file.size < 13) {
+      $(`${pass}-info`).textContent = 'Choose an MP4 no larger than 256 MiB.'; controls(); return;
     }
     clips[pass].url = URL.createObjectURL(file);
     video.src = clips[pass].url;
