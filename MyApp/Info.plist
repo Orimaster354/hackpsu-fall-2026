@@ -13,5 +13,10 @@
 	<string>Blindspot uses the camera to find your place in the room and show tasks in AR.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Blindspot connects to the game server on your local network.</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 </dict>
 </plist>

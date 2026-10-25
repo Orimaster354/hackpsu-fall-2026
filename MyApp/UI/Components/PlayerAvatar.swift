@@ -16,6 +16,9 @@ struct PlayerAvatar: View {
     let name: String?
     let colorIndex: Int
     @ScaledMetric private var scaledSize: CGFloat = 40
+    /// Counts the times this slot filled, so a player joining pops in. Not on first appearance.
+    @State private var joins = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Follows Dynamic Type, but stops growing so a row never turns into one big circle.
     private var size: CGFloat { min(scaledSize, 56) }
@@ -33,6 +36,15 @@ struct PlayerAvatar: View {
             }
         }
         .frame(width: size, height: size)
+        .keyframeAnimator(initialValue: 1.0, trigger: joins) { avatar, scale in
+            avatar.scaleEffect(scale)
+        } keyframes: { _ in
+            CubicKeyframe(0.7, duration: 0.01)
+            SpringKeyframe(1.0, duration: 0.4, spring: .bouncy)
+        }
+        .onChange(of: name != nil) { _, filled in
+            if filled && !reduceMotion { joins += 1 }
+        }
         .accessibilityHidden(true)
     }
 }

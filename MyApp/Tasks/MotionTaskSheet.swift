@@ -21,6 +21,8 @@ struct MotionTaskSheet: View {
     @State private var progress = 0.0
     @State private var outcome = Outcome.running
     @State private var deadline = Date.now
+    /// Counts finished tasks, to play the screen flash.
+    @State private var flashes = 0
 
     static let timeLimit: TimeInterval = 15
 
@@ -40,6 +42,7 @@ struct MotionTaskSheet: View {
         .gameColumn()
         .frame(maxHeight: .infinity, alignment: .top)
         .background { backdrop.ignoresSafeArea() }
+        .overlay { CompletionFlash(trigger: flashes) }
         .preferredColorScheme(.dark)
         // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
         .task { if session.canAttemptTasks, arView == nil { await camera.start() } }
@@ -200,9 +203,16 @@ struct MotionTaskSheet: View {
                     .multilineTextAlignment(.center)
                     .padding()
             case .success:
-                Label("Task complete", systemImage: "checkmark.circle.fill")
-                    .font(.system(.title3, design: .rounded, weight: .bold))
-                    .foregroundStyle(Theme.Palette.success)
+                ZStack {
+                    CompletionBurst(size: 230).offset(y: -34)
+                    Text("TASK COMPLETE")
+                        .font(.system(.title3, design: .rounded, weight: .heavy))
+                        .tracking(2.5)
+                        .foregroundStyle(.white)
+                        .shadow(color: Theme.Palette.success.opacity(0.8), radius: 10)
+                        .popOnAppear(delay: 0.15)
+                        .offset(y: 112)
+                }
             case .timedOut:
                 Label("Time's up", systemImage: "clock.badge.exclamationmark.fill")
                     .font(.system(.title3, design: .rounded, weight: .bold))
@@ -308,6 +318,7 @@ struct MotionTaskSheet: View {
         guard session.canAttemptTasks, canFinish,
               outcome == .running || outcome == .awaitingTile else { return }
         outcome = .success
+        flashes += 1
         telemetry.state = .success
         telemetry.progress = 1
         progress = 1

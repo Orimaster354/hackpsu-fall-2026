@@ -56,7 +56,9 @@ struct RoomMapView: View {
         let station = stations.first { $0.tile == tile && isShown($0) }
         let color = PlayerPalette.color(at: myColorIndex)
         return ZStack {
-            shape.fill(grid.edge.contains(tile) ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+            // Floor tiles read as a faint blue grid, the walls' edge tiles as a brighter cyan one.
+            shape.fill(grid.edge.contains(tile) ? Theme.Palette.neon.opacity(0.14) : Theme.Palette.glow.opacity(0.07))
+            shape.strokeBorder(Theme.Palette.neon.opacity(grid.edge.contains(tile) ? 0.2 : 0.1), lineWidth: 0.5)
             if editableTiles.contains(tile) {
                 shape.strokeBorder(Theme.Palette.accent.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
             }

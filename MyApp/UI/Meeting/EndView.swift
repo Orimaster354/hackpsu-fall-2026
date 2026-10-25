@@ -31,6 +31,8 @@ struct EndView: View {
             Image(systemName: crewWon ? "wrench.and.screwdriver.fill" : "theatermasks.fill")
                 .font(.system(size: 56, weight: .bold))
                 .foregroundStyle(tint)
+                .popOnAppear(delay: 0.25)
+                .background { CompletionBurst(tint: tint, size: 300, showsCheck: false) }
             Text(crewWon ? "CREW WINS" : "IMPOSTOR WINS")
                 .font(.system(.largeTitle, design: .rounded, weight: .heavy))
                 .tracking(2)

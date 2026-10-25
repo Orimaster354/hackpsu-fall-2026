@@ -28,6 +28,8 @@ struct RootView: View {
     @State private var session: GameSession
     @State private var position: PositionCoordinator
     @State private var deathTrigger = 0
+    @State private var stingerTrigger = 0
+    @State private var stingerTitle = "EMERGENCY MEETING"
     @State private var homePath: [HomeRoute]
     private let preview: ScreenPreview
     private let scanAction: RoomScanAction?
@@ -68,13 +70,20 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            GameBackdrop().ignoresSafeArea()
+            // Each screen has its own corner of space; they cross-fade over 600ms.
+            ZStack {
+                SpaceBackdrop(scene: backdropScene, animated: backdropScene != .game)
+                    .id(backdropScene)
+                    .transition(.opacity)
+            }
+            .animation(.easeInOut(duration: 0.6), value: backdropScene)
             screen
                 .id(session.stage)
                 .transition(Motion.screen)
             DeathEffect(trigger: deathTrigger)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+            StageStinger(trigger: stingerTrigger, title: stingerTitle)
         }
         .animation(.easeOut(duration: 0.3), value: session.stage)
         .environment(session)
@@ -86,6 +95,14 @@ struct RootView: View {
             if old && !new { deathTrigger += 1 }
         }
         .sensoryFeedback(.error, trigger: deathTrigger)
+        .sensoryFeedback(.warning, trigger: stingerTrigger)
+        .onChange(of: session.stage) { _, stage in
+            if stage == .meeting {
+                stingerTitle = session.meeting?.reason == .report ? "BODY REPORTED" : "EMERGENCY MEETING"
+                stingerTrigger += 1
+                AccessibilityNotification.Announcement(stingerTitle.capitalized).post()
+            }
+        }
         .onChange(of: session.stage) {
             // Once in a room, forget the Join screen so leaving the room lands on Home.
             if session.stage != .home {
@@ -96,6 +113,16 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             // Back from the background: if AR gave up while the app was away, try once more.
             if phase == .active { position.appBecameActive() }
+        }
+    }
+
+    private var backdropScene: SpaceBackdrop.Scene {
+        switch session.stage {
+        case .home: .home
+        case .lobby, .roleReveal: .lobby
+        case .playing: .game
+        case .meeting, .result: .meeting
+        case .ended: session.winner == .crew ? .crewWins : .impostorWins
         }
     }
 
