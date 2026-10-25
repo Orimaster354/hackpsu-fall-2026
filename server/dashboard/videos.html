@@ -1,9 +1,31 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROOMSHIFT · Video detector test</title><link rel="stylesheet" href="/dashboard/style.css"><link rel="stylesheet" href="/dashboard/videos.css"><script src="/dashboard/videos.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROOMSHIFT · Live app scans</title><link rel="stylesheet" href="/dashboard/style.css"><link rel="stylesheet" href="/dashboard/videos.css"><script src="/dashboard/videos.js" defer></script></head>
 <body>
-<header><a class="brand" href="/dashboard"><span class="brand-icon">R</span>ROOMSHIFT <span class="slash">/</span><span class="subtitle">VIDEO LAB</span></a><span id="status" class="badge muted" role="status">CHECKING SERVER</span></header>
+<header><a class="brand" href="/dashboard"><span class="brand-icon">R</span>ROOMSHIFT <span class="slash">/</span><span class="subtitle">APP SCANS</span></a><span id="status" class="badge muted" role="status">CHECKING SERVER</span></header>
 <main>
+  <section class="panel app-scans" aria-label="Live app scans">
+    <div class="panel-heading"><div><p class="eyebrow">LIVE APP SCANS</p><h1>Room scans from your phones</h1></div><span id="app-scan-status" class="badge">WAITING FOR APP</span></div>
+    <p id="app-scan-connection" class="helper" role="status">Connecting to scan monitor…</p>
+    <div class="scan-toolbar"><label for="app-scan-select">Recent scan</label><select id="app-scan-select"></select><button id="app-scan-follow" type="button">Follow newest</button></div>
+    <p id="app-scan-info" class="helper">Scan a room in the iPhone app. New uploads appear automatically.</p>
+    <div id="app-scan-details" hidden>
+      <progress id="app-scan-upload" max="100" value="0" aria-label="App upload received"></progress>
+      <p id="app-scan-metrics" class="helper"></p><p id="app-scan-error" class="error" hidden></p><ul id="app-scan-warnings" class="helper"></ul>
+      <div class="app-scan-layout">
+        <div><h2>App frame and note boxes</h2><label for="app-scan-frame-select">Retained frame</label> <select id="app-scan-frame-select"></select>
+          <p id="app-scan-preview-empty" class="helper">A preview appears as the uploaded frames are analyzed.</p>
+          <div id="app-scan-frame" class="app-scan-frame" hidden><img id="app-scan-image" alt="Uploaded app sweep frame"><canvas id="app-scan-boxes" aria-label="Detected note boxes"></canvas></div>
+          <p id="app-scan-frame-caption" class="footnote"></p>
+        </div>
+        <div><h2>Server grid and stations</h2><canvas id="app-scan-grid" width="600" height="450" aria-label="Scan grid with task, fix and emergency tiles"></canvas><ol id="app-scan-stations" class="helper"></ol></div>
+      </div>
+      <h2>Merged notes and task selections</h2><div id="app-scan-notes" class="app-scan-notes"></div>
+      <h2>Processing activity</h2><ol id="app-scan-events" class="helper"></ol>
+    </div>
+    <p class="footnote">Results update as the app upload is processed. Laptop-only; up to six recent scans and six representative JPEG previews per scan stay in memory until restart. No phone camera stream is required.</p>
+  </section>
+  <details class="manual-video-tools"><summary>Manual video detector comparison</summary>
   <div class="heading"><div><p class="eyebrow">ROOM VIDEO · DETECTOR COMPARISON</p><h1>Analyze a room video.</h1><p class="description">Upload one overview video; a second clip is optional. Review wall Post-it notes, nearby wall features and task suggestions.</p></div><a href="/dashboard">← Mission control</a></div>
   <label class="helper" for="detector">Detector</label> <select id="detector"><option value="yoloe" selected>YOLOE-26 Small · local CPU</option><option value="gemini">Gemini · server API</option></select>
   <label class="helper"><input id="reasoning" type="checkbox" checked> Ask Gemini to choose Post-it notes using nearby wall context</label>
@@ -19,4 +41,5 @@
   </form>
   <section id="planning" class="panel activity" hidden><p class="eyebrow">GEMINI TASK REASONING</p><h2>Suggested Post-it task spots, pending physical placement</h2><p id="planning-summary" class="helper"></p><ol id="station-plan"></ol><p class="footnote">These are candidate/task recommendations, not world positions. Pose/grid processing must still validate edge tiles, 2 m spacing and the emergency station. Host review is required.</p></section>
   <section class="panel activity"><div class="panel-heading"><div><p class="eyebrow">TEST PROGRESS</p><h2 id="summary">Ready when you are.</h2></div><span id="elapsed" class="hint"></span></div><p id="error" class="error" role="alert" hidden></p><ol id="events"><li class="quiet">Select an overview video to begin.</li></ol><p class="footnote">Detection test only. No pose logs, room polygon, grid or stations are generated. YOLOE returns image boxes on decoded frames; its scores are not calibrated correctness probabilities, and short image-space tracks do not identify unique physical stations. click a result to inspect the corresponding moment. An empty result is shown honestly, without invented stations.</p></section>
-</main></body></html>
+  </details>
+</main><script src="/dashboard/app-scans.js" defer></script></body></html>

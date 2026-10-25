@@ -155,6 +155,10 @@ Preference: notes with distinctive objects in the same frame (furniture, plants,
 
 ## Developer video diagnostic
 
+`/dashboard/videos` now opens a live laptop-only app-scan monitor. It polls `GET /api/dashboard/scans` once per second, following newly received perimeter/sweep uploads and validated per-frame YOLOE progress. It shows upload bytes, stage, raw observations versus geometrically merged notes, Gemini choices, warnings/errors, grid and final station tiles. Existing manual video comparison is in a collapsed section. This observes app batch uploads; it does not require or add a live camera streaming contract.
+
+Diagnostic endpoints are loopback-only and read-only: `GET /api/dashboard/scans` returns bounded scan metadata; `GET /api/dashboard/scans/:runId/frames/:index` returns a retained JPEG preview. At most six scan records and six <=600 KiB original JPEG previews per record remain in server memory until eviction/restart. Notes shown are capped at 64, selected stations first. No images are written to disk for the monitor; the sweep worker still deletes its temporary files. Metadata excludes raw poses, player identities, credentials and hidden roles. Preview images themselves are available only on the laptop. Server restart is required to load this feature and resets its history.
+
 This is a developer tool for tuning YOLOE and Gemini on room clips. The game scan is the perimeter walk plus sweep described in "Sticky-note scan"; the overview and edge-walk video pipeline below is not part of it.
 
 Updated diagnostic input: one `overview` MP4/MOV is required; `edge` is optional for an additional view. The dashboard and both detector adapters accept either one or two videos and return only supplied passes. This removes the edge-walk requirement from the developer detector test. This diagnostic does not implement the gameplay perimeter-walk and sweep pipeline described above.

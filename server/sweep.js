@@ -52,15 +52,21 @@ function locatedNotes(frames,intrinsics,geometry){
     return {...note,id:`sweep:${i}`,t:frame.t,box:d.box,context:d.context||[]};
   });
 }
-async function processSweep(room,body,{sweepDetector,stationPlanner,signal,beforeCommit}={}){
+async function processSweep(room,body,{sweepDetector,stationPlanner,signal,beforeCommit,scanMonitor,monitorRun}={}){
   const input=sweepInput(body,room.grid);
   const geometry=room.scanGeometry;
+  scanMonitor?.update(monitorRun,{status:'processing',step:'detecting',totalFrames:input.frames.length,grid:room.grid});
+  scanMonitor?.event(monitorRun,`Analyzing ${input.frames.length} app JPEG frames with YOLOE.`);
   room.broadcast({t:'processing',step:'gemini'});
   const detector=sweepDetector || require('./sweepDetector').createSweepDetector();
-  const frames=await detector.detect(input.frames,input.intrinsics,{signal});
+  const reportFrame=frame=>scanMonitor?.frame(monitorRun,frame,input.frames.find(f=>f.index===frame.index),input.intrinsics);
+  const frames=await detector.detect(input.frames,input.intrinsics,{signal,onFrame:reportFrame});
+  for(const frame of frames)reportFrame(frame);
   signal?.throwIfAborted();
   room.broadcast({t:'processing',step:'placing'});
   const notes=locatedNotes(frames,input.intrinsics,geometry),warnings=[];
+  scanMonitor?.update(monitorRun,{step:'placing',notesFound:notes.length});
+  scanMonitor?.event(monitorRun,`${notes.length} wall-note candidates after geometric merging.`);
   const candidates=notes.map(n=>({id:n.id,pass:'sweep',label:'sticky note',t:n.t,score:n.confidence,
     box:n.box.map((v,i)=>v/(i%2===0?input.intrinsics.width:input.intrinsics.height)),
     context:n.context.map(c=>({...c,box:c.box?.map((v,i)=>v/(i%2===0?input.intrinsics.width:input.intrinsics.height))})),
@@ -70,6 +76,7 @@ async function processSweep(room,body,{sweepDetector,stationPlanner,signal,befor
     try{
       room.broadcast({t:'processing',step:'gemini'});
       const planner=stationPlanner || createStationPlanner();
+      scanMonitor?.update(monitorRun,{step:'ranking'});scanMonitor?.event(monitorRun,'Gemini ranking note metadata.');
       const plan=await planner.planCandidates(candidates,{signal});
       suggestions=validatePlan(plan,candidates).suggestions;
     }catch{signal?.throwIfAborted();warnings.push('Gemini ranking unavailable or invalid; stations ranked by detector score.');}
@@ -79,6 +86,12 @@ async function processSweep(room,body,{sweepDetector,stationPlanner,signal,befor
   beforeCommit?.();
   room.broadcast({t:'processing',step:'placing'});
   room.game.applySetup({grid:geometry.grid,stations:[geometry.emergency,...stations]});
+  const ordered=[...notes].sort((a,b)=>Number(stations.some(s=>s.id===`note-${b.id.split(':')[1]}`))-Number(stations.some(s=>s.id===`note-${a.id.split(':')[1]}`)));
+  scanMonitor?.retain(monitorRun,ordered,frames,input);
+  scanMonitor?.update(monitorRun,{step:'placing',grid:room.grid,stations:room.stations,
+    notes:ordered.slice(0,64).map(n=>({...candidates.find(c=>c.id===n.id),frameIndex:n.best.frameIndex,
+      observationCount:n.observations.length,station:stations.find(s=>s.id===`note-${n.id.split(':')[1]}`)||null})),
+    planning:{suggestions},warnings});
   return {ok:true,notesFound:notes.length,stations:stations.length,warnings};
 }
 module.exports={sweepInput,locatedNotes,selectStations,processSweep};

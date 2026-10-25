@@ -25,13 +25,17 @@ test('sweep worker uses temporary JPEGs, strips the API key and cleans up after 
       assert.equal(program,process.execPath);assert.equal(options.windowsHide,true);assert.ok(!options.env.GEMINI_API_KEY);
       const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>process.nextTick(()=>child.emit('close',null));
       child.stdin=new Writable({write(chunk,encoding,done){specs=JSON.parse(chunk).frames;assert.ok(specs.every(f=>fs.existsSync(f.path)));done();entered();
-        process.nextTick(()=>{if(mode==='cancel')return;child.stdout.write(mode==='broken'?'bad-json\n':`${JSON.stringify({type:'sweep_result',...result()})}\n`);if(mode==='success')child.emit('close',0);});}});
+        process.nextTick(()=>{if(mode==='cancel')return;
+          if(mode==='success')child.stdout.write(`${JSON.stringify({type:'sweep_frame',frame:result().frames[0]})}\n`);
+          child.stdout.write(mode==='broken'?'bad-json\n':`${JSON.stringify({type:'sweep_result',...result()})}\n`);if(mode==='success')child.emit('close',0);});}});
       return child;
     };
     const detector=createSweepDetector({pythonPath:process.execPath,ready:true,spawnImpl});const controller=new AbortController();
-    const pending=detector.detect(input,k,{signal:controller.signal});
+    const progress=[];
+    const pending=detector.detect(input,k,{signal:controller.signal,onFrame:frame=>progress.push(frame)});
     const checked=mode==='success'?pending:assert.rejects(pending,{code:'SCAN_FAILED'});
     await started;if(mode==='cancel')controller.abort();await checked;
+    if(mode==='success'){assert.equal(progress.length,1);assert.equal(progress[0].index,7);}
     assert.ok(specs.every(f=>!fs.existsSync(f.path)));
   }
 });
