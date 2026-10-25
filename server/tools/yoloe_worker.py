@@ -11,11 +11,29 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / ".cache" / "yoloe"
 MODEL = "yoloe-26s-seg.pt"
-CLASSES = ["door", "desk", "sofa", "chair", "bookshelf", "cabinet", "table", "television", "refrigerator", "sink"]
-PROMPTS = ["door", "office desk", "sofa", "chair", "bookshelf", "storage cabinet", "table", "television", "refrigerator", "sink"]
+NOTE = "sticky note"
+CLASSES = [NOTE, "door", "window", "whiteboard", "light switch", "electrical outlet", "clock", "poster", "fire extinguisher", "air vent"]
+PROMPTS = ["sticky note", "door", "window", "whiteboard", "light switch", "electrical outlet", "wall clock", "wall poster", "fire extinguisher", "wall air vent"]
 FPS = 1
 CONFIDENCE = 0.35
 MAX_RESULTS = 8
+
+
+def nearby_context(note_box, elements, width, height):
+    """Same-frame image evidence only; no physical distance/wall attachment claim."""
+    x, y, w, h = note_box
+    def gap(item):
+        a, b, c, d = item["box"]
+        dx = max(a - (x + w), x - (a + c), 0) * width
+        dy = max(b - (y + h), y - (b + d), 0) * height
+        return math.hypot(dx, dy) / math.hypot(width, height)
+    return [{**item, "imageGap": round(gap(item), 6)} for item in
+            sorted(elements, key=gap) if gap(item) <= 0.2][:6]
+
+
+def final_notes(tracks):
+    return sorted([track["best"] for track in tracks if track["label"] == NOTE],
+                  key=lambda item: item["confidence"], reverse=True)[:MAX_RESULTS]
 
 
 def diverse_best(items, limit, per_class, score):
@@ -57,7 +75,7 @@ def remember(tracks, candidate):
     else:
         track = {"label": candidate["label"], "lastSeen": candidate["t"],
                  "lastBox": candidate["box"], "best": candidate}
-        tracks[:] = diverse_best(tracks + [track], 64, 8, lambda item: item["best"]["confidence"])
+        tracks[:] = diverse_best(tracks + [track], 64, 64, lambda item: item["best"]["confidence"])
 
 
 def load_model():
@@ -113,8 +131,8 @@ def analyze_video(model, spec):
                 raise ValueError("A sampled video frame could not be decoded.")
             next_sample = t + 1.0 / FPS
             with contextlib.redirect_stdout(sys.stderr):
-                results = model.predict(frame, device="cpu", imgsz=640, conf=0.20,
-                                        iou=0.5, max_det=32, verbose=False)
+                results = model.predict(frame, device="cpu", imgsz=960, conf=0.20,
+                                        iou=0.5, max_det=64, verbose=False)
             analyzed += 1
             result = results[0]
             if result.boxes is not None and len(result.boxes):
@@ -124,6 +142,7 @@ def analyze_video(model, spec):
                 success, encoded = cv2.imencode(".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 72])
                 if not success:
                     raise ValueError("Cannot encode a detection preview.")
+                notes, elements = [], []
                 for box, score, class_id in zip(result.boxes.xyxyn.cpu().tolist(),
                                                  result.boxes.conf.cpu().tolist(), result.boxes.cls.cpu().tolist()):
                     x1, y1, x2, y2 = [max(0.0, min(1.0, float(value))) for value in box]
@@ -134,19 +153,27 @@ def analyze_video(model, spec):
                     if score < CONFIDENCE:
                         count("belowThresholdByClass", label)
                         continue
-                    if area < 0.015 or area > 0.9:
+                    # Small wall notes must survive the old furniture-size filter.
+                    min_area = 0.0001 if label == NOTE else 0.001
+                    if area < min_area or area > (0.5 if label == NOTE else 0.9):
                         count("areaRejectedByClass", label)
                         continue
                     count("acceptedByClass", label)
-                    remember(tracks, {"label": label, "t": t, "box": normalized,
-                                      "confidence": float(score), "frameIndex": frame_index, "jpeg": encoded.tobytes()})
+                    detection = {"label": label, "box": normalized, "confidence": float(score)}
+                    if label == NOTE:
+                        notes.append(detection)
+                    else:
+                        elements.append(detection)
+                for note in notes:
+                    remember(tracks, {**note, "t": t, "frameIndex": frame_index, "jpeg": encoded.tobytes(),
+                                      "context": nearby_context(note["box"], elements, width, height)})
             if analyzed == 1 or analyzed % 10 == 0:
                 emit({"type": "progress", "message": f"YOLOE {spec['pass']}: {analyzed} frames analyzed, at {t:.1f}s"})
     finally:
         capture.release()
     if analyzed == 0:
         raise ValueError("No video frames could be analyzed.")
-    best = diverse_best([track["best"] for track in tracks], MAX_RESULTS, 2, lambda item: item["confidence"])
+    best = final_notes(tracks)
     detections = []
     import numpy as np
     for candidate in sorted(best, key=lambda item: item["t"]):
@@ -155,6 +182,10 @@ def analyze_video(model, spec):
         h, w = image.shape[:2]
         x, y, bw, bh = candidate["box"]
         cv2.rectangle(image, (round(x * w), round(y * h)), (round((x + bw) * w), round((y + bh) * h)), (100, 230, 150), 2)
+        for element in candidate["context"]:
+            a, b, c, d = element["box"]
+            cv2.rectangle(image, (round(a * w), round(b * h)), (round((a + c) * w), round((b + d) * h)), (240, 180, 90), 1)
+            cv2.putText(image, element["label"], (round(a * w), max(12, round(b * h))), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (240, 180, 90), 1)
         caption = f"{candidate['label']} | score {candidate['confidence']:.2f} | {candidate['t']:.2f}s"
         cv2.putText(image, caption, (8, max(20, round(y * h) - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 230, 150), 1, cv2.LINE_AA)
         ok, jpeg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 72])
@@ -168,7 +199,7 @@ def analyze_video(model, spec):
 
 
 def main():
-    emit({"type": "progress", "message": "Loading YOLOE-26 Small and room prompts on CPU..."})
+    emit({"type": "progress", "message": "Loading YOLOE-26 Small: sticky-note candidates and wall context on CPU..."})
     model = load_model()
     if "--warmup" in sys.argv:
         import numpy as np
@@ -185,7 +216,8 @@ def main():
     emit({"type": "result", "model": MODEL, "elapsedMs": round((time.monotonic() - started) * 1000),
           "passes": passes, "analysis": {"engine": "yoloe", "device": "cpu", "fps": FPS,
           "confidenceThreshold": CONFIDENCE, "classes": CLASSES, "maxObjectsPerPass": MAX_RESULTS,
-          "prompts": PROMPTS, "maxCandidatesPerClass": 2,
+          "prompts": PROMPTS, "imageSize": 960, "candidateLabel": NOTE, "maxCandidatesPerClass": MAX_RESULTS,
+          "contextMetric": "same-frame box gap / image diagonal; not meters",
           "deduplication": "short image-space overlap tracks; not persistent world identities"},
           "usage": None, "cleanupWarnings": []})
 

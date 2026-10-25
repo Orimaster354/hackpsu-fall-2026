@@ -2,22 +2,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { RoomError, requireAction } = require('./errors');
 const { DEFAULT_GEMINI_MODEL } = require('./gemini');
+const { NOTE } = require('./yoloDetector');
 const PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/station-planning.md'), 'utf8');
 const TASKS = ['hold', 'tilt', 'dial', 'shake'];
 
 function planningCandidates(result) {
-  const detections = result.passes.flatMap((pass) => pass.detections.map((detection, index) => ({
+  return result.passes.flatMap((pass) => pass.detections.map((detection, index) => ({
     id: `${pass.pass}:${index}`, pass: pass.pass, label: detection.label,
     t: detection.t, box: detection.box, score: detection.confidence ?? null,
-  })));
-  const best = new Map();
-  for (const item of detections) {
-    // Conservative suggestion shortlist, not a physical-object identity merge.
-    if (item.score !== null && item.score < 0.55) continue;
-    const existing = best.get(item.label);
-    if (!existing || (item.score ?? 0) > (existing.score ?? 0)) best.set(item.label, item);
-  }
-  return [...best.values()];
+    context: (detection.context || []).map(({ label, box, confidence, imageGap }) => ({ label, box, confidence, imageGap })),
+  })).filter((item) => item.label === NOTE && (item.score === null || item.score >= 0.55)));
 }
 
 function validatePlan(value, candidates) {
@@ -27,7 +21,7 @@ function validatePlan(value, candidates) {
   const ids = new Set(); let tasks = 0; let fixes = 0;
   const suggestions = value.suggestions.map((item) => {
     const candidate = candidates.find((candidate) => candidate.id === item?.candidateId);
-    requireAction(candidate && !ids.has(item.candidateId) && TASKS.includes(item.task)
+    requireAction(candidate?.label === NOTE && !ids.has(item.candidateId) && TASKS.includes(item.task)
       && ['task', 'fix'].includes(item.kind) && typeof item.reason === 'string'
       && item.reason.trim().length > 0 && item.reason.length <= 300,
     'PLANNER_INVALID_RESPONSE', 'Gemini suggested an unknown/duplicate candidate or invalid task.');
@@ -40,7 +34,8 @@ function validatePlan(value, candidates) {
   });
   requireAction(tasks <= 3 && fixes <= 1, 'PLANNER_INVALID_RESPONSE', 'Choose at most three tasks and one fix candidate.');
   return { status: 'needs_geometry', summary: value.summary.trim(), suggestions,
-    selectionPolicy: { minimumYoloScore: 0.55, maxPerLabel: 1 },
+    selectionPolicy: { minimumYoloScore: 0.55, candidateLabel: NOTE, maxPerPass: 8,
+      contextMetric: 'same-frame box gap / image diagonal; not meters' },
     placementReady: false, placementNote: 'Landmark/task suggestions only. Pose/grid processing, edge placement, 2 m spacing and host review are still required.' };
 }
 
@@ -49,7 +44,7 @@ function createStationPlanner({ apiKey = process.env.GEMINI_API_KEY,
   fetchImpl = fetch } = {}) {
   return { configured: Boolean(apiKey), model, async plan(detections, { signal } = {}) {
     const candidates = planningCandidates(detections);
-    if (!candidates.length) return { status: 'no_candidates', summary: 'No sufficiently strong candidates for automatic suggestions. Lower-scored detections remain available for manual review.', suggestions: [], placementReady: false };
+    if (!candidates.length) return { status: 'no_candidates', summary: 'No sufficiently strong sticky-note candidates. Do not substitute furniture; record clearer views of wall notes or use manual placement.', suggestions: [], placementReady: false };
     requireAction(candidates.length <= 24 && apiKey && /^[a-zA-Z0-9._-]+$/.test(model),
       'PLANNER_NOT_CONFIGURED', 'Configure the server Gemini key and reasoning model.');
     let response;

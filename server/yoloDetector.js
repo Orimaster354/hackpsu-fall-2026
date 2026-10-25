@@ -6,7 +6,12 @@ const { spawn } = require('node:child_process');
 const { RoomError, requireAction } = require('./errors');
 
 const MODEL = 'yoloe-26s-seg.pt';
-const CLASSES = ['door', 'desk', 'sofa', 'chair', 'bookshelf', 'cabinet', 'table', 'television', 'refrigerator', 'sink'];
+const NOTE = 'sticky note';
+const CLASSES = [NOTE, 'door', 'window', 'whiteboard', 'light switch', 'electrical outlet', 'clock', 'poster', 'fire extinguisher', 'air vent'];
+function validBox(box) {
+  return Array.isArray(box) && box.length === 4 && box.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)
+    && box[2] > 0 && box[3] > 0 && box[0] + box[2] <= 1.000001 && box[1] + box[3] <= 1.000001;
+}
 
 function validateYoloResult(result, videos) {
   requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === 2,
@@ -19,13 +24,20 @@ function validateYoloResult(result, videos) {
     seen.add(pass.pass);
     const detections = pass.detections.map((item) => {
       const box = item?.box;
-      requireAction(CLASSES.includes(item?.label) && Number.isFinite(item.t) && item.t >= 0 && item.t < video.duration
+      requireAction(item?.label === NOTE && Number.isFinite(item.t) && item.t >= 0 && item.t < video.duration
         && Number.isFinite(item.confidence) && item.confidence >= 0.35 && item.confidence <= 1
         && Number.isInteger(item.frameIndex) && item.frameIndex >= 0
-        && Array.isArray(box) && box.length === 4 && box.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)
-        && box[2] > 0 && box[3] > 0 && box[0] + box[2] <= 1.000001 && box[1] + box[3] <= 1.000001,
+        && validBox(box),
       'YOLOE_INVALID_RESPONSE', 'YOLOE returned invalid labels, timestamps or boxes.');
       const safe = { label: item.label, t: item.t, box, confidence: item.confidence, frameIndex: item.frameIndex };
+      requireAction(Array.isArray(item.context) && item.context.length <= 6, 'YOLOE_INVALID_RESPONSE', 'Missing or oversized same-frame wall context.');
+      safe.context = item.context.map((element) => {
+        requireAction(CLASSES.includes(element?.label) && element.label !== NOTE && validBox(element.box)
+          && Number.isFinite(element.confidence) && element.confidence >= 0.35 && element.confidence <= 1
+          && Number.isFinite(element.imageGap) && element.imageGap >= 0 && element.imageGap <= 0.200001,
+        'YOLOE_INVALID_RESPONSE', 'Invalid wall-context evidence.');
+        return { label: element.label, box: element.box, confidence: element.confidence, imageGap: element.imageGap };
+      });
       if (item.frameJpeg !== undefined) {
         requireAction(typeof item.frameJpeg === 'string' && item.frameJpeg.length <= 350000
           && /^[A-Za-z0-9+/]+={0,2}$/.test(item.frameJpeg), 'YOLOE_INVALID_RESPONSE', 'Invalid detection frame preview.');
@@ -45,7 +57,8 @@ function validateYoloResult(result, videos) {
       timestampSource: pass.timestampSource === 'decoder presentation time' ? pass.timestampSource : 'frame-index/fps fallback' };
   });
   return { model: MODEL, passes, analysis: { engine: 'yoloe', device: 'cpu', fps: 1, confidenceThreshold: 0.35,
-    classes: CLASSES, maxObjectsPerPass: 8, maxCandidatesPerClass: 2,
+    classes: CLASSES, maxObjectsPerPass: 8, maxCandidatesPerClass: 8, imageSize: 960, candidateLabel: NOTE,
+    contextMetric: 'same-frame box gap / image diagonal; not meters',
     deduplication: 'short image-space overlap tracks; not persistent world identities' },
     primaryDetector: 'yoloe',
     usage: null, cleanupWarnings: [] };
@@ -55,7 +68,7 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
   process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'), spawnImpl = spawn,
   ready = fs.existsSync(path.join(__dirname, '.cache/yoloe/ready.json')), timeoutMs = 600000 } = {}) {
   return { model: MODEL, configured: Boolean(ready && fs.existsSync(pythonPath)),
-    quality: { fps: 1, maxObjectsPerPass: 8, device: 'cpu', confidenceThreshold: 0.35 },
+    quality: { fps: 1, maxObjectsPerPass: 8, device: 'cpu', confidenceThreshold: 0.35, imageSize: 960, candidateLabel: NOTE },
     async detect(videos, { signal, notify = () => {} } = {}) {
       requireAction(ready && fs.existsSync(pythonPath), 'YOLOE_NOT_READY', 'Install requirements-yoloe.txt and run tools/yoloe_worker.py --warmup with the isolated Python runtime.');
       signal?.throwIfAborted();
@@ -116,4 +129,4 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
     } };
 }
 
-module.exports = { createYoloDetector, validateYoloResult, MODEL, CLASSES };
+module.exports = { createYoloDetector, validateYoloResult, MODEL, CLASSES, NOTE };

@@ -28,8 +28,8 @@ function provider({ quota = false, invalid = false, empty = false } = {}) {
       const filePart = JSON.parse(options.body).contents[0].parts.find((part) => part.fileData);
       const overview = filePart.fileData.fileUri.endsWith('clip1');
       return json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: invalid ? 'invalid json' : JSON.stringify([
-        ...(empty ? [] : [overview ? { label: 'Wooden table', t: 2.5, box_2d: [100, 200, 500, 800] }
-          : { label: 'Door', t: 8, box_2d: [0, 100, 900, 500] }]),
+        ...(empty ? [] : [overview ? { label: 'sticky note', t: 2.5, box_2d: [100, 200, 150, 250] }
+          : { label: 'Post-it note', t: 8, box_2d: [0, 100, 50, 150] }]),
       ]) }] } }], usageMetadata: { totalTokenCount: 123 } });
     }
     throw new Error('Unexpected provider URL');
@@ -41,7 +41,7 @@ test('each full video gets its own detailed inference request and server-owned p
   const fake = provider();
   const detector = createVideoDetector({ apiKey: 'test-key', fetchImpl: fake.fetchImpl, pollMs: 0 });
   const result = await detector.detect(videos);
-  assert.deepEqual(result.passes[0].detections, [{ label: 'Wooden table', t: 2.5, box: [0.2, 0.1, 0.6, 0.4] }]);
+  assert.deepEqual(result.passes[0].detections, [{ label: 'sticky note', t: 2.5, box: [0.2, 0.1, 0.05, 0.05], context: [] }]);
   assert.equal(result.passes[1].detections[0].t, 8);
   const generation = fake.calls.filter((call) => call.url.includes(':generateContent'));
   assert.equal(generation.length, 2);
@@ -102,6 +102,7 @@ test('provider quota/invalid JSON failures clean up both uploaded files without 
 
 test('timestamps stay in their own video and generic labels are omitted', () => {
   assert.deepEqual(normalizeDetections([{ pass: 'edge', label: 'object', t: 3, box_2d: [0, 0, 100, 100] }], { overview: 5, edge: 5 }), { overview: [], edge: [] });
+  assert.deepEqual(normalizeDetections([{ pass: 'edge', label: 'door', t: 3, box_2d: [0, 0, 100, 100] }], { overview: 5, edge: 5 }), { overview: [], edge: [] });
   for (const item of [{ pass: 'third', t: 1 }, { pass: 'overview', t: 6 }, { pass: 'edge', t: -1 }]) {
     assert.throws(() => normalizeDetections([{ ...item, label: 'Desk', box_2d: [0, 0, 100, 100] }], { overview: 5, edge: 5 }), { code: 'GEMINI_INVALID_RESPONSE' });
   }
