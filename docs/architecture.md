@@ -101,6 +101,7 @@ The emergency station's required `task` uses `hold` as an ignored placeholder; c
 JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebSocket:
 - `POST /scan/:room/perimeter` and `POST /scan/:room/sweep`: JSON uploads, host only. Formats in "Sticky-note scan".
 - `POST /map/:room` and `GET /map/:room`: ARWorldMap binary.
+- Map uploads accept 1 byte to 64 MiB; the host client must use the same cap. The older `RoomScanFlow.maxMapBytes` value of 20 MiB rejects larger maps locally before any request; Owner A must update it and its error text.
 - There is no separate process route: each upload starts its own processing, and results arrive as `processing` then `setup` over WebSocket.
 
 ### Client to server

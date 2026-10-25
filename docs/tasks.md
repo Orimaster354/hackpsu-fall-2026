@@ -32,6 +32,9 @@ Latest main's UI and D networking/models are preserved alongside the backend. Ba
 
 ## Phase 3: Scan capture and server grid
 
+- [x] C: raise the backend ARWorldMap cap from 20 to 64 MiB; verify a 21 MiB upload/download round-trip while retaining existing size enforcement tests.
+- [ ] A: raise `RoomScanFlow.maxMapBytes` to `64 * 1024 * 1024` and update its hardcoded "server's 20 MiB limit" message. Current integration source blocks larger maps locally, so the server change alone does not unblock the phone. Update the `GameClient.uploadMap` limit comment and corresponding AR scan checks; rebuild the app.
+
 - [x] C: live app scan dashboard at `/dashboard/videos`, with laptop-only bounded progress/history and frame previews, merged note/station results and errors; iOS upload contract unchanged. Automated live-progress/retention tests and an isolated synthetic browser check pass. Reload the server to begin observing new app scans; earlier uploads are not reconstructed.
 
 Owner C ARKit integration audit: inspected `origin/feature/arkit` at `f7f49a7`. Capture/upload and live tile source implementations are present; A's device acceptance boxes stay open. Native-size synthetic JPEG uploads pass both branch and server validators; a 24-frame live API run took 30.2 s here. Backend four-client scan/map/start/AR-tile/task integration and equal-grid perimeter retry are verified (76 backend tests). See `server/ARKIT_HANDOFF.md` for a client retry bug: `RoomScanFlow.waitForGrid` requires a changed grid and times out when identical accepted poses produce an equal grid. No Swift files changed.
