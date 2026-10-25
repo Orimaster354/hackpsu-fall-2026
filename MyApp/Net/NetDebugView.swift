@@ -144,12 +144,15 @@ struct NetDebugView: View {
     /// match docs/fixtures/postit/sweep-observations.json. No real notes are in the pictures, so the server should
     /// accept the upload and report notesFound 0 (or whatever its detector stub returns).
     private func uploadTestSweep() {
-        let size = CGSize(width: 640, height: 360)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
+        // The pixels must match the intrinsics below (the server rejects a mismatch when it finds notes).
+        let size = CGSize(width: 1920, height: 1080)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.lightGray.setFill()
             context.fill(CGRect(origin: .zero, size: size))
             UIColor.yellow.setFill()
-            context.fill(CGRect(x: 300, y: 160, width: 40, height: 40))
+            context.fill(CGRect(x: 940, y: 520, width: 40, height: 40))
         }
         guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
             note("could not make a test JPEG")
