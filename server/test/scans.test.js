@@ -25,6 +25,14 @@ test('perimeter fixture produces the expected grid, center and broadcast order',
   assert.deepEqual(messages.filter((_,i)=>i%2===0).map(m=>m.t),['processing','setup','lobby']);
   assert.equal(room.setupConfirmed,false);
 });
+test('retrying identical perimeter poses succeeds and broadcasts a fresh equal setup',async t=>{
+  const {post,room,messages}=await roomServer(t);
+  await post('perimeter',{poses});const previous=structuredClone(room.grid);messages.length=0;
+  const retry=await post('perimeter',{poses});
+  assert.equal(retry.status,200);assert.deepEqual(room.grid,previous);
+  assert.equal(messages.filter(m=>m.t==='setup').length,2); // Both connected recipients receive the new acknowledgement.
+  assert.ok(messages.filter(m=>m.t==='setup').every(m=>JSON.stringify(m.grid)===JSON.stringify(previous)));
+});
 test('perimeter rejects non-host, malformed poses, open/small paths, and locked/playing setup atomically',async t=>{
   const {room,host,guest,post}=await roomServer(t);
   assert.equal((await post('perimeter',{poses},guest.id)).status,403);
