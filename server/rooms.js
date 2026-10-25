@@ -104,6 +104,7 @@ class Room {
   lobbyMessage() {
     return {
       t: 'lobby',
+      hostId: this.hostId,
       players: this.publicPlayers(),
       grid: this.grid,
       stations: this.stations,
