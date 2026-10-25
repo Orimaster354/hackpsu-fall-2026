@@ -55,6 +55,7 @@ final class GameClient {
     func connect(to endpoint: ServerConfig.Endpoint? = nil) {
         endpointOverride = endpoint
         wantsConnection = true
+        lastIssue = nil
         reconnectTask?.cancel()
         open(initial: true)
     }
