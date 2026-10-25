@@ -31,11 +31,12 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 - [ ] A: save ARWorldMap after pass 2 and upload it via `POST /map/:room`.
 - [x] C: host-only in-memory ARWorldMap `POST /map/:room` and `GET /map/:room`. Verified binary round-trip, room isolation, authorization, size limits, and lobby-only uploads.
 - [ ] C: scan-pass upload endpoints, in-memory pass storage, and `POST /scan/:room/process`.
-- [x] C: host-only room grid/station setup via `setRoom`, including validation of grid dimensions, accessible tiles, station kinds and task types. Server tests cover setup validation; this is not yet the edge-tile `editStation` / `confirmSetup` workflow in the architecture contract.
+- [x] C: server-produced setup validation and host-only `editStation` / `confirmSetup`. Verified nullable initial grid, playable/edge schema and origins, atomic edge edits, 2 m Euclidean spacing, immutable emergency, confirmation lock, reconnect and confirmed start. Developer fixture enables manual integration before scan processing; clients cannot send `setRoom`.
 - [ ] C: polygon + grid from the edge-walk path; `scan_failed` on open loop or area under 4 m^2. AC: a 5x5 m test walk gives dims within 1 tile; test with a recorded `poses.json` fixture, no phone needed.
 - [ ] C: emergency tile at the centroid.
 - [ ] D: shared `poses.json` fixture and sample `setup` JSON committed to `docs/fixtures/` early so A, B and C can work in parallel.
-- [ ] D + C: align the implemented lobby/game wire details (`ready`, `setRoom`, flat state) with `docs/architecture.md` before client models ship; current architecture tables still describe `editStation` / `confirmSetup` and the original grid shape.
+- [x] C: align backend lobby/game wire details with the approved architecture: retain ready/connected, add setupConfirmed, use nullable initial grid and flat state/meeting events. Handoff and sample lobby/setup/state JSON are in `server/CLIENT_INTEGRATION.md` and `server/fixtures/`. Four real WebSocket clients verify kill/report/vote and sabotage/fix/task synchronization; 37 automated tests pass.
+- [ ] D: verify Codable models and GameClient against the backend handoff fixtures, then test on phones with B. User confirmed these client paths are not ready; backend tests do not satisfy this acceptance.
 - [ ] B: host setup review screen (2D map, stations on edge tiles, move/delete/add, confirm).
 
 ## Phase 4: Relocalization and live tiles (A)

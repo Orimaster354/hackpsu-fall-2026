@@ -13,15 +13,18 @@ async function runRound(url, log = console.log) {
       identities.push(await clients[index].waitFor((event) => event.t === 'joined'));
     }
     log(`Four bots joined ${host.room}`);
-    clients[0].send({ t: 'setRoom', grid: { cols: 5, rows: 5, tileSize: 1, blocked: [] }, stations: [
-      { id: 'dial', name: 'Demo dial', tile: { x: 0, y: 0 }, task: 'dial', kind: 'task' },
-      { id: 'fix', name: 'Lights', tile: { x: 1, y: 1 }, task: 'hold', kind: 'fix' },
-    ] });
-    await clients[0].waitFor((event) => event.t === 'lobby' && event.stations.length === 2);
+    const lobby = await clients[0].waitFor((event) => event.t === 'lobby');
+    if (!lobby.grid) throw new Error('No server setup is available. For this demo start the server with npm run start:manual.');
+    const setup = await clients[0].waitFor((event) => event.t === 'setup');
+    const task = setup.stations.find((station) => station.kind === 'task');
+    const emergency = setup.stations.find((station) => station.kind === 'emergency');
+    assert.ok(task && emergency, 'Simulation needs a task and emergency station.');
+    clients[0].send({ t: 'confirmSetup' });
+    await clients[0].waitFor((event) => event.t === 'setup' && event.setupConfirmed);
     for (const client of clients) {
       client.send({ t: 'ready', ready: true });
-      client.send({ t: 'tile', tile: { x: 0, y: 0 }, source: 'manual' });
-      client.send({ t: 'tile', tile: { x: 0, y: 0 }, source: 'manual' });
+      client.send({ t: 'tile', tile: task.tile, source: 'manual' });
+      client.send({ t: 'tile', tile: task.tile, source: 'manual' });
     }
     await clients[0].waitFor((event) => event.t === 'lobby'
       && event.players.every((player) => player.ready && player.tile));
@@ -33,8 +36,13 @@ async function runRound(url, log = console.log) {
     log('Private roles delivered; all clients see identical playing state');
     const crewIndex = roles.findIndex((event) => event.role === 'crew');
     const impostorIndex = roles.findIndex((event) => event.role === 'impostor');
-    clients[crewIndex].send({ t: 'taskDone', stationId: 'dial' });
+    clients[crewIndex].send({ t: 'taskDone', stationId: task.id });
     await clients[0].waitFor((event) => event.t === 'state' && event.tasksDone === 1);
+    clients[crewIndex].send({ t: 'tile', tile: emergency.tile, source: 'manual' });
+    clients[crewIndex].send({ t: 'tile', tile: emergency.tile, source: 'manual' });
+    await clients[crewIndex].waitFor((event) => event.t === 'state'
+      && event.players.some((player) => player.id === identities[crewIndex].playerId
+        && player.tile?.x === emergency.tile.x && player.tile?.y === emergency.tile.y));
     clients[crewIndex].send({ t: 'emergency' });
     await Promise.all(clients.map((client) => client.waitFor((event) => event.t === 'meeting')));
     for (const client of clients) client.send({ t: 'vote', target: identities[impostorIndex].playerId });

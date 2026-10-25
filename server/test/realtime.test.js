@@ -3,9 +3,10 @@ const assert = require('node:assert/strict');
 const { createAppServer } = require('../index');
 const { runRound } = require('../tools/fakeClient');
 const { connectClient } = require('../tools/client');
+const manualSetup = require('../fixtures/manual-setup.json');
 
 test('four WebSocket bots play a complete synchronized round', async (t) => {
-  const app = createAppServer();
+  const app = createAppServer({ manualSetup });
   const address = await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
   const result = await runRound(`ws://127.0.0.1:${address.port}/ws`, () => {});
@@ -14,7 +15,7 @@ test('four WebSocket bots play a complete synchronized round', async (t) => {
 });
 
 test('reconnect during play restores only that player’s private role and authoritative state', async (t) => {
-  const app = createAppServer();
+  const app = createAppServer({ manualSetup });
   const address = await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
   const url = `ws://127.0.0.1:${address.port}/ws`;
@@ -26,6 +27,8 @@ test('reconnect during play restores only that player’s private role and autho
     clients[index].send({ t: 'join', room: host.room, name: `Crew ${index}` });
     await clients[index].waitFor((event) => event.t === 'joined');
   }
+  clients[0].send({ t: 'confirmSetup' });
+  await clients[0].waitFor((event) => event.t === 'setup' && event.setupConfirmed);
   clients[0].send({ t: 'start', roles: ['impostor', 'impostor', 'impostor', 'impostor'] });
   const role = await clients[0].waitFor((event) => event.t === 'role');
   await clients[0].waitFor((event) => event.t === 'state');

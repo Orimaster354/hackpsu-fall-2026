@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAppServer } = require('../index');
 const { connectClient } = require('../tools/client');
+const manualSetup = require('../fixtures/manual-setup.json');
 
 test('map upload checks host, stores room-scoped bytes, and broadcasts map availability', async (t) => {
   const app = createAppServer({ maxMapBytes: 16 });
@@ -35,7 +36,7 @@ test('map upload checks host, stores room-scoped bytes, and broadcasts map avail
 });
 
 test('map upload is blocked after game start and GET remains available', async (t) => {
-  const app = createAppServer();
+  const app = createAppServer({ manualSetup });
   const address = await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
@@ -45,6 +46,7 @@ test('map upload is blocked after game start and GET remains available', async (
   const url = `${base}/map/${room.code}`;
   const headers = { 'content-type': 'application/octet-stream', 'x-player-id': player.id };
   assert.equal((await fetch(url, { method: 'POST', headers, body: 'map' })).status, 204);
+  room.game.confirmSetup(player);
   room.game.start(player);
   assert.equal((await fetch(url, { method: 'POST', headers, body: 'replacement' })).status, 409);
   assert.equal(await (await fetch(url)).text(), 'map');

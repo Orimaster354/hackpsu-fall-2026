@@ -48,7 +48,9 @@ function createAppServer(options = {}) {
         const roomList = Array.from(rooms.rooms.values(), (room) => ({
           code: room.code,
           phase: room.phase,
-          grid: { cols: room.grid.cols, rows: room.grid.rows, tileSize: room.grid.tileSize },
+          grid: room.grid ? { cols: room.grid.cols, rows: room.grid.rows, tileSize: room.grid.tileSize,
+            originX: room.grid.originX, originZ: room.grid.originZ } : null,
+          setupConfirmed: room.setupConfirmed,
           stationCount: room.stations.length,
           hasMap: room.hasMap,
           players: room.lobbyMessage().players.map((player) => ({
@@ -110,6 +112,7 @@ function createAppServer(options = {}) {
             ? rooms.create(message.name, socket)
             : rooms.join(message.room, message.name, socket, message.playerId);
           send(socket, { t: 'joined', playerId: membership.player.id, room: membership.room.code });
+          if (membership.room.grid) send(socket, membership.room.setupMessage());
           if (membership.room.phase === 'lobby') membership.room.broadcastLobby();
           else {
             send(socket, membership.room.lobbyMessage());
@@ -222,8 +225,11 @@ if (require.main === module) {
     console.error('PORT must be an integer between 0 and 65535.');
     process.exitCode = 1;
   } else {
-    createAppServer().listen(port).then((address) => {
+    const appOptions = process.argv.includes('--manual-fixture')
+      ? { manualSetup: JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'manual-setup.json'), 'utf8')) } : {};
+    createAppServer(appOptions).listen(port).then((address) => {
       console.log(`ROOMSHIFT server listening on 0.0.0.0:${address.port}`);
+      if (appOptions.manualSetup) console.log('Developer manual fixture enabled; host must confirm setup.');
     }).catch((error) => {
       console.error(error);
       process.exitCode = 1;
