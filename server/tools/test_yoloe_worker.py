@@ -8,6 +8,31 @@ spec.loader.exec_module(worker)
 
 
 class OverlapTests(unittest.TestCase):
+    def test_same_frame_triplicate_keeps_highest_score_before_context(self):
+        notes = [
+            {"label": worker.NOTE, "box": [0.2, 0.2, 0.1, 0.1], "confidence": 0.6},
+            {"label": worker.NOTE, "box": [0.201, 0.202, 0.095, 0.096], "confidence": 0.9},
+            {"label": worker.NOTE, "box": [0.205, 0.205, 0.08, 0.08], "confidence": 0.7},
+        ]
+        selected = worker.suppress_overlapping_notes(notes)
+        self.assertEqual(selected, [notes[1]])
+
+    def test_nested_duplicate_suppressed_but_distinct_nearby_notes_survive(self):
+        notes = [
+            {"label": worker.NOTE, "box": [0.1, 0.1, 0.1, 0.1], "confidence": 0.9},
+            {"label": worker.NOTE, "box": [0.12, 0.12, 0.03, 0.03], "confidence": 0.8},
+            {"label": worker.NOTE, "box": [0.21, 0.1, 0.1, 0.1], "confidence": 0.7},
+        ]
+        self.assertEqual(worker.suppress_overlapping_notes(notes), [notes[0], notes[2]])
+
+    def test_two_notes_in_one_frame_cannot_update_the_same_track(self):
+        tracks = []
+        note = {"label": worker.NOTE, "box": [0.1, 0.1, 0.1, 0.1], "t": 0, "confidence": 0.8}
+        worker.remember(tracks, note)
+        worker.remember(tracks, {**note, "t": 1})
+        worker.remember(tracks, {**note, "t": 1, "box": [0.12, 0.1, 0.1, 0.1]})
+        self.assertEqual(len(tracks), 2)
+
     def test_overlap(self):
         self.assertAlmostEqual(worker.iou([0, 0, 0.5, 0.5], [0, 0, 0.5, 0.5]), 1)
         self.assertEqual(worker.iou([0, 0, 0.2, 0.2], [0.5, 0.5, 0.2, 0.2]), 0)
