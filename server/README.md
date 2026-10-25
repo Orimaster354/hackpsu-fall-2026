@@ -60,7 +60,15 @@ To check phone reachability, open `http://<laptop-LAN-IP>:8080/health` in Safari
 
 The router resolves socket membership and calls `room.game.handle(player, message)`. `Game.state()` returns public state, `Game.publish()` broadcasts it, and `room.sendTo(player, event)` delivers privately. The future scan processor calls internal `room.game.applySetup({grid,stations})`; validation clones the supplied data and rejects replacement after confirmation. This is not a client event. Test-only clock/random/timer injection is available through `createAppServer(options)`.
 
-## Legacy Gemini diagnostics
+## Two-video Gemini test dashboard
+
+Start the backend with `npm.cmd start` and open `http://localhost:8080/dashboard/videos` on the laptop. Select the overview and edge-walk MP4 files, then click **Analyze both videos**. Each clip is limited to 64 MiB / 120 seconds; use H.264 MP4 if the browser cannot play a file. Full videos are uploaded to the Gemini Files API and supplied together in one generation request at 1 FPS sampling. The page shows progress, timestamped per-pass labels and normalized boxes; click a detection to seek its video and inspect the box. Download JSON saves validated results. This tests recorded-video detection, not geometry or station placement.
+
+The ignored `.env` supplies `GEMINI_API_KEY`. Optional `GEMINI_VIDEO_MODEL` overrides `GEMINI_MODEL` for this test only. The dashboard shows the selected model and whether a key is present, never the key. The model must support video and structured JSON; provider access/quota errors are displayed without automatic retry. Google API documentation: [video understanding](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding), [file uploads](https://ai.google.dev/api/files).
+
+Developer-only `GET /api/dashboard/video-test` exposes non-secret configuration; `POST` accepts multipart `overview`, `edge`, `overviewDuration`, `edgeDuration` with `X-Roomshift-Video-Test: 1`, and streams NDJSON progress/result/error records. Loopback only, one run at a time, five-minute processing deadline; Cancel aborts active work. Input is bounded in memory and not saved locally. Provider files are deleted after each attempt when possible; cleanup failures are reported on successful results. Provider retention applies if cleanup fails. No gameplay rooms or shared iOS endpoints are changed. Actual two-video acceptance remains pending a successful run with the user's clips.
+
+## Legacy sampled-frame/image helpers
 
 Existing `suggest` and `scan_start`/`scan_frame`/`scan_stop` helpers remain for detector diagnostics. They are not the updated iOS capture pipeline and cannot set room geometry. All new scan work follows the architecture's two recorded videos, timestamped poses and intrinsics, with geometry and station placement on the server.
 
