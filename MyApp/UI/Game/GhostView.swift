@@ -8,6 +8,7 @@ struct GhostView: View {
             Image(systemName: "person.fill.xmark")
                 .font(.system(size: 52, weight: .bold))
                 .foregroundStyle(Theme.Palette.textSecondary)
+                .floating()
             Text("You were eliminated")
                 .font(.system(.title2, design: .rounded, weight: .bold))
             VStack(spacing: 10) {

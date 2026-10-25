@@ -15,18 +15,30 @@ struct StationIcon: View {
 
     var body: some View {
         icon
-            .opacity(done ? 0.35 : 1)
+            .opacity(done && kind != .task ? 0.35 : (done ? 0.85 : 1))
             .accessibilityHidden(true)
     }
 
     @ViewBuilder private var icon: some View {
         switch kind {
         case .task:
-            Text("?")
-                .font(.system(size: size * 0.62, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: size, height: size)
-                .background(Theme.Palette.accent, in: Circle())
+            // The question mark turns into a check when the task is done.
+            ZStack {
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: size * 0.5, weight: .black))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .transition(IconSwap())
+                } else {
+                    Text("?")
+                        .font(.system(size: size * 0.62, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .transition(IconSwap())
+                }
+            }
+            .animation(.iconSwap, value: done)
+            .frame(width: size, height: size)
+            .background(done ? Theme.Palette.success : Theme.Palette.accent, in: Circle())
         case .emergency where style == .world:
             Text("EMERGENCY")
                 .font(.system(size: size * 0.36, weight: .heavy, design: .rounded))

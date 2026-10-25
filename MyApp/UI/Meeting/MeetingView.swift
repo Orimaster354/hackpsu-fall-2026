@@ -168,9 +168,19 @@ private struct CandidateRow: View {
                 } extras: {
                     if hasVoted { Tag(text: "Voted") }
                 }
-                Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isChosen ? Theme.Palette.emergency : Theme.Palette.textSecondary.opacity(0.6))
+                ZStack {
+                    if isChosen {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Theme.Palette.emergency)
+                            .transition(IconSwap())
+                    } else {
+                        Image(systemName: "circle")
+                            .foregroundStyle(Theme.Palette.textSecondary.opacity(0.6))
+                            .transition(IconSwap())
+                    }
+                }
+                .font(.title3)
+                .animation(.iconSwap, value: isChosen)
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
@@ -180,7 +190,7 @@ private struct CandidateRow: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.gameRow)
         .disabled(!isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(player.name + (hasVoted ? ", has voted" : ""))

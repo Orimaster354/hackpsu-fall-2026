@@ -4,8 +4,16 @@ import SwiftUI
 /// Contrast was checked against WCAG AA (4.5:1): white on accent 5.35, secondary text 9.1, every avatar fill 5.0 or better.
 enum Theme {
     enum Palette {
-        static let backgroundTop = Color(hex: 0x0B1020)
-        static let backgroundBottom = Color(hex: 0x151D3B)
+        static let backgroundTop = Color(hex: 0x050814)
+        static let backgroundBottom = Color(hex: 0x0B1433)
+        /// Dark glass behind cards and panels, over the space backdrop.
+        static let panel = Color(hex: 0x0A1230)
+        /// The space-cyberpunk accents: neon cyan for edges and glows, electric blue for buttons,
+        /// violet and magenta only in the backdrop's nebula and horizon.
+        static let neon = Color(hex: 0x3DDCFF)
+        static let glow = Color(hex: 0x3D8BFF)
+        static let violet = Color(hex: 0x7B5CFF)
+        static let magenta = Color(hex: 0xFF3DB8)
         static let surface = Color.white.opacity(0.07)
         static let surfaceStroke = Color.white.opacity(0.10)
         static let textPrimary = Color.white
@@ -57,22 +65,27 @@ extension View {
             .frame(maxWidth: .infinity)
     }
 
-    /// A raised group: a faint fill with a hairline edge.
+    /// A dark glass panel: deep navy over the backdrop, with a hairline edge that catches a little
+    /// neon at the top left.
     func gameCard(radius: CGFloat = Theme.Radius.card) -> some View {
-        background(Theme.Palette.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return background(Theme.Palette.panel.opacity(0.7), in: shape)
             .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(Theme.Palette.surfaceStroke, lineWidth: 1)
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [Theme.Palette.neon.opacity(0.3), Color.white.opacity(0.07), Theme.Palette.glow.opacity(0.16)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
             }
     }
 }
 
+/// The calm space backdrop for sheets and covers. `RootView` draws the richer per-screen scenes.
 struct GameBackdrop: View {
     var body: some View {
-        LinearGradient(
-            colors: [Theme.Palette.backgroundTop, Theme.Palette.backgroundBottom],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        SpaceBackdrop(scene: .game, animated: false)
     }
 }

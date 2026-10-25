@@ -11,6 +11,8 @@ struct GameView: View {
     @State private var taskCameraInUse = false
     /// The station whose task was just closed. It does not reopen until the player leaves its tile.
     @State private var snoozedStationID: String?
+    /// Counts the times the crew brought the lights back while this player was watching.
+    @State private var lightRestores = 0
     @State private var showPosition: Bool
 
     /// `showPositionSheet` is for previews and screenshots.
@@ -25,15 +27,25 @@ struct GameView: View {
             VStack(spacing: 16) {
                 header.staggeredEntrance(0)
                 if session.isAlive {
-                    if inDark { LightsOutBanner() }
+                    if inDark { LightsOutBanner().transition(Motion.swap) }
                     mapSection.staggeredEntrance(1)
                 } else {
                     GhostView().staggeredEntrance(1)
                 }
             }
             .brightness(inDark ? -0.2 : 0)
+            .animation(.easeOut(duration: 0.3), value: inDark)
         } bar: {
             if session.isAlive { actions }
+        }
+        .overlay { LightsEffect(isOut: inDark, restores: lightRestores) }
+        .onChange(of: session.lightsOut) { old, new in
+            if old, !new, session.role == .crew, session.isAlive, session.phase == .playing { lightRestores += 1 }
+        }
+        .sensoryFeedback(.success, trigger: lightRestores)
+        .sensoryFeedback(.warning, trigger: inDark) { _, now in now }
+        .onChange(of: lightRestores) {
+            AccessibilityNotification.Announcement("Lights restored. Tasks are back on.").post()
         }
         .fullScreenCover(item: $taskStation, onDismiss: { taskCameraInUse = false }) { station in
             MotionTaskSheet(station: station) { session.completeTask(at: station) }
@@ -281,6 +293,10 @@ private struct LightsOutBanner: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .gameCard(radius: Theme.Radius.control)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                    .strokeBorder(Theme.Palette.warning.opacity(0.55), lineWidth: 1.5)
+            }
             .brightness(0.2)
     }
 }

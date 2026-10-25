@@ -160,7 +160,7 @@ struct SetupReviewView: View {
                         in: RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous)
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.gameRow)
                 .accessibilityLabel("\(station.name), \(station.spokenKind), column \(station.tile.x + 1), row \(station.tile.y + 1)")
                 .accessibilityAddTraits(station.id == selectedID ? [.isButton, .isSelected] : .isButton)
             }

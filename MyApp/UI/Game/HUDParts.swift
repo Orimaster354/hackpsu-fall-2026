@@ -1,14 +1,24 @@
 import SwiftUI
 
-/// Tasks done out of tasks total, for living crew only (docs: `tasksTotal`).
+/// Tasks done out of tasks total, for living crew only (docs: `tasksTotal`). When a task gets done,
+/// by anyone, the count rolls up, a "+1" floats off it and a flash of light runs along the bar.
 struct TaskProgressBar: View {
     let done: Int
     let total: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Counts the times the total went up, to play the flash.
+    @State private var gains = 0
 
     private var fraction: Double { total > 0 ? min(1, Double(done) / Double(total)) : 0 }
 
+    private struct Gain {
+        var sweep = 0.0
+        var chip = 0.0
+        var rise = 0.0
+    }
+
     var body: some View {
+        let reduced = reduceMotion
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Tasks")
@@ -18,22 +28,75 @@ struct TaskProgressBar: View {
                 Text("\(done) of \(total)")
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(done)))
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .overlay(alignment: .topTrailing) { chip(reduced: reduced) }
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.Palette.surface)
-                    Capsule().fill(Theme.Palette.success).frame(width: proxy.size.width * fraction)
+                    Capsule()
+                        .fill(Color.black.opacity(0.4))
+                        .overlay { Capsule().strokeBorder(Theme.Palette.neon.opacity(0.2), lineWidth: 1) }
+                    Capsule()
+                        .fill(LinearGradient(colors: [Theme.Palette.neon, Theme.Palette.success], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: proxy.size.width * fraction)
+                        .shadow(color: Theme.Palette.neon.opacity(fraction > 0 ? 0.5 : 0), radius: 6)
+                        .keyframeAnimator(initialValue: Gain(), trigger: gains) { bar, gain in
+                            bar.overlay { shimmer(gain.sweep, reduced: reduced) }
+                        } keyframes: { _ in
+                            KeyframeTrack(\.sweep) { CubicKeyframe(1, duration: 0.7) }
+                            KeyframeTrack(\.chip) {
+                                CubicKeyframe(1, duration: 0.12)
+                                LinearKeyframe(1, duration: 0.4)
+                                CubicKeyframe(0, duration: 0.4)
+                            }
+                            KeyframeTrack(\.rise) { CubicKeyframe(1, duration: 0.9) }
+                        }
                 }
             }
-            .frame(height: 8)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: done)
+            .frame(height: 10)
+        }
+        .animation(reduced ? nil : .easeOut(duration: 0.3), value: done)
+        .onChange(of: done) { old, new in
+            if new > old { gains += 1 }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tasks")
         .accessibilityValue("\(done) of \(total) done")
+    }
+
+    /// A band of light crossing the filled part of the bar.
+    private func shimmer(_ sweep: Double, reduced: Bool) -> some View {
+        GeometryReader { proxy in
+            LinearGradient(colors: [.clear, Color.white.opacity(0.8), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: max(32, proxy.size.width * 0.4))
+                .offset(x: -proxy.size.width * 0.4 + sweep * proxy.size.width * 1.4)
+                .opacity(!reduced && sweep > 0 && sweep < 1 ? 1 : 0)
+        }
+        .clipShape(Capsule())
+    }
+
+    /// The "+1" that rises off the count. It is driven by its own animator so it can fade on its own.
+    private func chip(reduced: Bool) -> some View {
+        Text("+1")
+            .font(.system(.footnote, design: .rounded, weight: .heavy))
+            .foregroundStyle(Theme.Palette.success)
+            .shadow(color: Theme.Palette.success.opacity(0.7), radius: 6)
+            .keyframeAnimator(initialValue: Gain(), trigger: gains) { text, gain in
+                text
+                    .opacity(gain.chip)
+                    .offset(y: reduced ? -14 : -14 - gain.rise * 10)
+            } keyframes: { _ in
+                KeyframeTrack(\.chip) {
+                    CubicKeyframe(1, duration: 0.12)
+                    LinearKeyframe(1, duration: 0.4)
+                    CubicKeyframe(0, duration: 0.4)
+                }
+                KeyframeTrack(\.rise) { CubicKeyframe(1, duration: 0.9) }
+            }
+            .accessibilityHidden(true)
     }
 }
 

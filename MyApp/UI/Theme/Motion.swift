@@ -94,3 +94,47 @@ extension View {
         modifier(StaggeredEntrance(index: index))
     }
 }
+
+private struct PopOnAppear: ViewModifier {
+    let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .scaleEffect(shown || reduceMotion ? 1 : 0.8)
+            .onAppear {
+                withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(duration: 0.4, bounce: 0.25).delay(delay)) { shown = true }
+            }
+    }
+}
+
+private struct Floating: ViewModifier {
+    let distance: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var raised = false
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: reduceMotion ? 0 : (raised ? -distance : distance))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) { raised = true }
+            }
+    }
+}
+
+extension View {
+    /// A small pop for a moment worth noticing, such as a finished task or the end banner: scale
+    /// 0.8 to 1 with a touch of bounce, and opacity. For rare moments only. Under Reduce Motion it
+    /// is a plain fade.
+    func popOnAppear(delay: Double = 0) -> some View {
+        modifier(PopOnAppear(delay: delay))
+    }
+
+    /// Bobs gently up and down, for the ghost. Still under Reduce Motion.
+    func floating(distance: CGFloat = 4) -> some View {
+        modifier(Floating(distance: distance))
+    }
+}
