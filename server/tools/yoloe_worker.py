@@ -36,6 +36,20 @@ def final_notes(tracks):
                   key=lambda item: item["confidence"], reverse=True)[:MAX_RESULTS]
 
 
+def suppress_overlapping_notes(notes):
+    selected = []
+    for note in sorted(notes, key=lambda item: item["confidence"], reverse=True):
+        def duplicate(other):
+            a, b = note["box"], other["box"]
+            width = max(0, min(a[0]+a[2], b[0]+b[2])-max(a[0], b[0]))
+            height = max(0, min(a[1]+a[3], b[1]+b[3])-max(a[1], b[1]))
+            intersection = width * height
+            return iou(a, b) >= 0.45 or intersection / max(min(a[2]*a[3], b[2]*b[3]), 1e-9) >= 0.85
+        if not any(duplicate(other) for other in selected):
+            selected.append(note)
+    return selected
+
+
 def diverse_best(items, limit, per_class, score):
     buckets = {}
     for item in sorted(items, key=score, reverse=True):
@@ -64,6 +78,7 @@ def iou(a, b):
 
 def remember(tracks, candidate):
     matches = [track for track in tracks if track["label"] == candidate["label"]
+               and track["lastSeen"] < candidate["t"]
                and candidate["t"] - track["lastSeen"] <= 2.1
                and iou(track["lastBox"], candidate["box"]) >= 0.3]
     if matches:
@@ -164,7 +179,7 @@ def analyze_video(model, spec):
                         notes.append(detection)
                     else:
                         elements.append(detection)
-                for note in notes:
+                for note in suppress_overlapping_notes(notes):
                     remember(tracks, {**note, "t": t, "frameIndex": frame_index, "jpeg": encoded.tobytes(),
                                       "context": nearby_context(note["box"], elements, width, height)})
             if analyzed == 1 or analyzed % 10 == 0:
