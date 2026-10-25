@@ -80,13 +80,14 @@ final class LiveConnection {
         case let .joined(playerId, room):
             return [.joined(playerID: playerId, room: room)]
         case let .lobby(snapshot):
-            return [
-                .lobby(players: snapshot.players.map { PlayerInfo($0) },
-                       grid: snapshot.grid.map(MapGrid.init),
-                       stations: snapshot.stations.map { MapStation($0) },
-                       hasMap: snapshot.hasMap),
-                .setupStatus(confirmed: snapshot.setupConfirmed),
-            ]
+            var events: [ServerEvent] = []
+            if let hostId = snapshot.hostId { events.append(.host(id: hostId)) }
+            events.append(.lobby(players: snapshot.players.map { PlayerInfo($0) },
+                                 grid: snapshot.grid.map { MapGrid($0) },
+                                 stations: snapshot.stations.map { MapStation($0) },
+                                 hasMap: snapshot.hasMap))
+            events.append(.setupStatus(confirmed: snapshot.setupConfirmed))
+            return events
         case let .processing(step):
             return SetupStep(rawValue: step).map { [.processing($0)] } ?? []
         case let .setup(grid, stations, confirmed):

@@ -58,8 +58,9 @@ final class GameSession {
 
     // MARK: Derived room state
 
-    /// The host is the creator, who joins first (see the gaps note in SessionModels.swift).
-    var hostID: String? { players.first?.id }
+    /// From the server's `lobby.hostId` when known, else the creator who joins first.
+    private(set) var serverHostID: String?
+    var hostID: String? { serverHostID ?? players.first?.id }
     var isHost: Bool { myID != nil && myID == hostID }
 
     var stage: Stage {
@@ -156,6 +157,7 @@ final class GameSession {
         disconnect()
         roomCode = nil
         myID = nil
+        serverHostID = nil
         players = []
         grid = nil
         stations = []
@@ -255,6 +257,8 @@ final class GameSession {
             setupConfirmed = false
         case let .setupStatus(confirmed):
             setupConfirmed = confirmed
+        case let .host(id):
+            serverHostID = id
         case let .role(role):
             self.role = role
         case let .state(snapshot):
