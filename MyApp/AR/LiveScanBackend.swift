@@ -19,6 +19,10 @@ final class LiveScanBackend: ScanBackend {
     }
 
     var grid: MapGrid? { session.grid }
+    var setupRevision: Int { session.setupRevision }
+    /// How complete the map was at the moment it was saved. The save still goes ahead after the timeout, so the
+    /// host is told here when it was not complete.
+    private(set) var lastWorldMapQuality: WorldMapQuality?
 
     func uploadPerimeter(_ poses: [PoseSample]) async throws -> PerimeterResult {
         try await scanClient.uploadPerimeter(poses: poses)
@@ -37,8 +41,11 @@ final class LiveScanBackend: ScanBackend {
             progress("ARKit is still mapping the room (\(Self.describe(tracking.worldMappingStatus))). Slowly look around the room.")
             try await Task.sleep(for: .milliseconds(250))
         }
-        progress("Saving the AR world map (\(Self.describe(tracking.worldMappingStatus)))…")
-        return try await tracking.captureWorldMap()
+        let status = tracking.worldMappingStatus
+        progress("Saving the AR world map (\(Self.describe(status)))…")
+        let data = try await tracking.captureWorldMap()
+        lastWorldMapQuality = Self.quality(status)
+        return data
     }
 
     func uploadWorldMap(_ data: Data) async throws {
@@ -66,6 +73,16 @@ final class LiveScanBackend: ScanBackend {
             }
         }
         return worst
+    }
+
+    private static func quality(_ status: ARFrame.WorldMappingStatus) -> WorldMapQuality {
+        switch status {
+        case .mapped: .mapped
+        case .extending: .extending
+        case .limited: .limited
+        case .notAvailable: .notAvailable
+        @unknown default: .notAvailable
+        }
     }
 
     private static func describe(_ status: ARFrame.WorldMappingStatus) -> String {

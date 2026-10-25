@@ -20,6 +20,9 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
 
     enum PositionMode: String { case unlocalized, relocalizing, ar, manual }
     private(set) var positionMode: PositionMode = .unlocalized
+    /// Why AR gave up (timeout or session failure). Cleared when a new attempt starts, so a retry never shows
+    /// the previous attempt's error.
+    private(set) var positionFailure: PositionDetailResolver.Failure?
     private(set) var currentTile: SIMD2<Int>?
     private(set) var stationIcons: [ARStationIcon] = []
     private(set) var playerAlive = true
@@ -34,6 +37,9 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     /// B presents the existing manual tile picker in response to this callback/state.
     @ObservationIgnored var onManualModeRequested: (() -> Void)?
     @ObservationIgnored private var relocalizationTimeout: Task<Void, Never>?
+    /// Numbers each relocalization attempt. A timeout that wakes up after the attempt was cancelled, replaced or
+    /// interrupted sees an old number and does nothing, so it cannot push a newer attempt into manual mode.
+    @ObservationIgnored private var attempts = AttemptCounter()
     @ObservationIgnored private var tileTimer: Timer?
     @ObservationIgnored private var minimumFrameTimestamp: TimeInterval = 0
     @ObservationIgnored private var lastPublish: TimeInterval = 0
@@ -72,14 +78,33 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         session.pause()
         isRunning = false; quality = .notAvailable; pose = nil; currentTile = nil
         tileTimer?.invalidate(); tileTimer = nil
-        relocalizationTimeout?.cancel(); relocalizationTimeout = nil
+        invalidatePendingTimeout()
         if positionMode == .ar { positionMode = .relocalizing }
+    }
+
+    /// Cancels any waiting relocalization timeout and makes a late one harmless.
+    private func invalidatePendingTimeout() {
+        relocalizationTimeout?.cancel()
+        relocalizationTimeout = nil
+        attempts.next()
+    }
+
+    /// Clears everything the previous attempt left behind: its timeout, its error, its failure reason and its tile.
+    /// Call before starting a new attempt. It does not touch the running session, so the world frame is unchanged
+    /// until `loadWorldMap` replaces it with the saved map's frame.
+    func prepareForNewAttempt() {
+        invalidatePendingTimeout()
+        positionFailure = nil
+        lastError = nil
+        currentTile = nil
+        positionMode = .unlocalized
     }
 
     /// Discards the world map and starts a new coordinate frame at the phone's current pose.
     func reset() {
         grid = nil; stationIcons = []; currentTile = nil
-        relocalizationTimeout?.cancel(); relocalizationTimeout = nil
+        invalidatePendingTimeout()
+        positionFailure = nil
         positionMode = .unlocalized
         guard Self.isSupported else { return }
         minimumFrameTimestamp = ProcessInfo.processInfo.systemUptime
@@ -113,9 +138,10 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         guard let map = try NSKeyedUnarchiver.unarchivedObject(ofClass: ARWorldMap.self, from: data) else {
             throw ARCaptureError.invalid("The downloaded world map is invalid.")
         }
+        prepareForNewAttempt()
         grid = nil; stationIcons = []; currentTile = nil
         minimumFrameTimestamp = ProcessInfo.processInfo.systemUptime
-        pose = nil; quality = .relocalizing; isInterrupted = false; lastError = nil
+        pose = nil; quality = .relocalizing; isInterrupted = false
         let configuration = Self.makeConfiguration()
         configuration.initialWorldMap = map
         session.delegate = self
@@ -128,16 +154,19 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     private func beginRelocalizationTimeout() {
         positionMode = .relocalizing; currentTile = nil
         relocalizationTimeout?.cancel()
+        let id = attempts.next()
         relocalizationTimeout = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(20)) } catch { return }
-            guard let self, positionMode == .relocalizing else { return }
-            lastError = "Relocalization timed out after 20 seconds. Use the manual tile picker."
+            // Only the newest attempt may time out, and only if it is still searching.
+            guard let self, attempts.isCurrent(id), positionMode == .relocalizing else { return }
+            positionFailure = .timedOut
+            lastError = "Relocalization timed out after 20 seconds."
             useManualMode()
         }
     }
 
     func useManualMode() {
-        relocalizationTimeout?.cancel(); relocalizationTimeout = nil
+        invalidatePendingTimeout()
         positionMode = .manual; currentTile = nil
         onManualModeRequested?()
     }
@@ -196,7 +225,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
             frameHandler?(frame)
             if positionMode == .relocalizing, sample.quality.isReliable {
                 positionMode = .ar
-                relocalizationTimeout?.cancel(); relocalizationTimeout = nil
+                invalidatePendingTimeout()
+                positionFailure = nil
                 lastError = nil
             }
             let changed = sample.quality != quality
@@ -222,6 +252,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
             lastError = message; quality = .notAvailable; isRunning = false; pose = nil
             interruptionCount += 1
             useManualMode()
+            // After useManualMode, so the reason is the session failure, not a timeout.
+            positionFailure = .sessionFailed(message)
         }
     }
 
@@ -230,7 +262,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
             isInterrupted = true; quality = .notAvailable; pose = nil; currentTile = nil
             interruptionCount += 1
             if positionMode == .ar { positionMode = .relocalizing }
-            relocalizationTimeout?.cancel()
+            // The clock stops while interrupted; `sessionInterruptionEnded` starts a fresh one.
+            invalidatePendingTimeout()
         }
     }
 

@@ -51,6 +51,9 @@ Owner C ARKit integration audit: inspected `origin/feature/arkit` at `f7f49a7`. 
 - [ ] A: compute tile and send at 2-4 Hz; server 2-report filter. AC: two phones standing together report the same tile 90 percent of the time.
 - [ ] Decision gate (hour ~14): if relocalization fails in the real room, ship manual mode and remove AR from the demo path.
 
+## AR recovery (owners A and D, 2026-10-25)
+- Built, **not device-verified** (boxes in Phase 4 stay unchecked): real Retry AR (reloads the host's map and relocalizes in its frame), attempt numbers so stale timeouts and downloads are ignored, precise status (map missing, download or decode failure, relocalizing, timed out, interrupted, session failed, tracking, outside the grid), foreground auto-retry, map-quality warning in the scan report, and the `waitForGrid` fix for identical perimeter retries. Spec and device checklist: `docs/ar-capture.md`, "Joiner tracking and Retry AR". Mac checks added to `Tests/ARScanChecks/`; they were not run on this Windows checkout.
+
 ## Phase 5: Gemini stations and AR icons
 - [x] C: host-only single-photo Gemini suggestions with normalized object boxes. Verified with mocked tests and a live public test photo; this does not satisfy two-video timestamped detection or place stations.
 - [x] C: host-only continuous scan-frame WebSocket lifecycle, bounded buffering, frame-correlated private detections, and stop-on-game-start/disconnect. Automated tests and a browser sample-video run verified the server path; iOS camera/pose integration remains pending.

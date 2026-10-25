@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 import ImageIO
+import Observation
 import simd
 
 // Mac-side checks for the host scan (run MyApp/AR/Tests/run_scan_checks.sh). No ARKit, no device.
@@ -352,12 +353,20 @@ final class FakeBackend: ScanBackend {
     var sweepUploads: [SweepUpload] = []
     var mapPayloads: [Data] = []
     var selfCheck: Double? = 0.4
+    /// Counts setup events, like GameSession.setupRevision. It rises even when the grid is unchanged.
+    var setupRevision = 0
+    var lastWorldMapQuality: WorldMapQuality?
+    /// true: the server sends setup even though this upload HTTP reply fails (the reply was lost).
+    var setupBeforeError = false
 
     func uploadPerimeter(_ poses: [PoseSample]) async throws -> PerimeterResult {
         perimeterUploads.append(poses)
-        let result = try (perimeter.count > 1 ? perimeter.removeFirst() : perimeter[0]).get()
+        let outcome = perimeter.count > 1 ? perimeter.removeFirst() : perimeter[0]
         let delay = gridDelay
-        Task { try? await Task.sleep(for: delay); self.grid = fixtureGrid }   // `setup` arrives over the WebSocket
+        let announce = { Task { try? await Task.sleep(for: delay); self.grid = fixtureGrid; self.setupRevision += 1 } }   // setup arrives over the WebSocket
+        if setupBeforeError { announce() }
+        let result = try outcome.get()
+        if !setupBeforeError { announce() }
         return result
     }
     func uploadSweep(vantage: Tile, intrinsics: CameraIntrinsics, frames: [SweepFrame]) async throws -> SweepResult {
@@ -572,6 +581,180 @@ do {
     check(flow.step == .idle && flow.grid == nil && flow.message?.contains("start over") == true, "an interruption discards the whole scan")
     try? await Task.sleep(for: .milliseconds(300))
     check(flow.step == .idle && flow.sweepFrameCount == 0, "stale encodes are ignored after an interruption")
+}
+
+// MARK: 8. Setup acknowledgement, map quality, and AR recovery (the retry path)
+
+// A repeated perimeter produces an equal grid. The server still sends a fresh `setup`, and that must be enough.
+do {
+    let backend = FakeBackend()
+    backend.setupBeforeError = true   // the first upload's reply is lost, but the server did send `setup`
+    backend.perimeter = [.failure(Boom()), .success(PerimeterResult(ok: true, cols: 5, rows: 5, edgeTiles: 16))]
+    let flow = RoomScanFlow(backend: backend)
+    await standStill(flow, at: SIMD3(0, 1.4, 0), from: 0)
+    flow.startPerimeter()
+    await feed(flow, walkFrames(from: 1))
+    flow.finishPerimeter()
+    await settle("first upload failed") { flow.step == .perimeter && flow.message != nil }
+    await settle("setup from the first upload arrived") { backend.grid == fixtureGrid }
+    check(backend.grid == fixtureGrid, "the first setup is already in place, so a retry yields an equal grid")
+    let revisionAfterFirst = backend.setupRevision
+    backend.setupBeforeError = false
+    flow.finishPerimeter()   // identical poses
+    await settle("vantage picker after an identical retry") { flow.step == .pickingVantage }
+    check(flow.step == .pickingVantage, "an identical perimeter retry reaches the vantage picker", "step \(flow.step) message \(flow.message ?? "-")")
+    check(backend.setupRevision > revisionAfterFirst, "the retry produced a fresh setup event")
+    check(backend.perimeterUploads.count == 2 && backend.perimeterUploads[0] == backend.perimeterUploads[1], "both uploads carried the same poses")
+}
+
+// The decision rule itself.
+do {
+    let grid = fixtureGrid
+    check(RoomScanFlow.isFreshSetup(revision: 3, revisionBefore: 2, grid: grid, before: grid), "a new setup event is fresh even when the grid is equal")
+    check(!RoomScanFlow.isFreshSetup(revision: 2, revisionBefore: 2, grid: grid, before: grid), "no new event and an equal grid is not fresh")
+    check(!RoomScanFlow.isFreshSetup(revision: 2, revisionBefore: 2, grid: grid, before: nil), "counting backends do not fall back to grid comparison")
+    check(RoomScanFlow.isFreshSetup(revision: 0, revisionBefore: 0, grid: grid, before: nil), "a backend that cannot count falls back to a changed grid")
+    check(!RoomScanFlow.isFreshSetup(revision: 0, revisionBefore: 0, grid: grid, before: grid), "and an unchanged grid is not fresh there")
+}
+
+// World-map quality is reported, not hidden.
+do {
+    check(WorldMapQuality.mapped.warning == nil && WorldMapQuality.extending.warning == nil, "a mapped room has no warning")
+    check(WorldMapQuality.limited.warning != nil && WorldMapQuality.notAvailable.warning != nil, "a limited or unavailable map warns")
+    let backend = FakeBackend()
+    backend.lastWorldMapQuality = .limited
+    let flow = RoomScanFlow(backend: backend)
+    var clock = await reachVantage(flow)
+    clock = await goToVantage(flow, clock: clock)
+    flow.startSweep()
+    await feed(flow, sweepFrames(rate: 12, seconds: 30, from: clock), buffer: sweepBuffer)
+    await settle("scan done with a limited map") { flow.step == .done }
+    check(flow.mapQuality == .limited, "the flow remembers the map was limited")
+    check(flow.report.contains { $0.label == "Map warning" && $0.warn }, "the final report carries a visible map warning")
+    check(flow.report.contains { $0.label == "Map quality" && $0.warn }, "and flags the quality line")
+}
+
+// Attempt numbers make stale callbacks harmless.
+do {
+    var attempts = AttemptCounter()
+    let first = attempts.next()
+    check(attempts.isCurrent(first), "the newest attempt is current")
+    let second = attempts.next()
+    check(!attempts.isCurrent(first) && attempts.isCurrent(second), "starting a new attempt retires the old one")
+    attempts.next()
+    check(!attempts.isCurrent(second), "a cancel retires the attempt in flight")
+}
+
+// Every AR state maps to one precise status.
+do {
+    func resolve(_ map: PositionDetailResolver.MapState = .loaded, mode: PositionDetailResolver.Mode = .ar, interrupted: Bool = false,
+                 failure: PositionDetailResolver.Failure? = nil, reliable: Bool = true, inside: Bool = true) -> PositionDetail {
+        PositionDetailResolver.resolve(map: map, mode: mode, interrupted: interrupted, failure: failure,
+                                       hasReliablePosition: reliable, insideGrid: inside)
+    }
+    check(resolve(.idle) == .idle, "idle")
+    check(resolve(.downloading) == .downloadingMap, "downloading the map")
+    check(resolve(.missing) == .mapMissing, "map missing")
+    check(resolve(.downloadFailed("HTTP 500")) == .downloadFailed("HTTP 500"), "download failure keeps its reason")
+    check(resolve(.decodeFailed("bad archive")) == .decodeFailed("bad archive"), "decode failure keeps its reason")
+    check(resolve(mode: .relocalizing, reliable: false) == .relocalizing, "relocalizing")
+    check(resolve(mode: .unlocalized, reliable: false) == .relocalizing, "not yet localized reads as relocalizing")
+    check(resolve(mode: .manual, failure: .timedOut) == .timedOut, "timed out")
+    check(resolve(mode: .manual, failure: .sessionFailed("camera denied")) == .sessionFailed("camera denied"), "session failure keeps its reason")
+    check(resolve(mode: .relocalizing, interrupted: true, reliable: false) == .interrupted, "interrupted")
+    check(resolve() == .tracking, "tracking")
+    check(resolve(inside: false) == .outsideGrid, "outside the grid is its own state, not a failure")
+    check(resolve(reliable: false) == .relocalizing, "degraded tracking reads as relocalizing")
+    check(resolve(.missing, failure: .timedOut) == .mapMissing, "a missing map outranks an old timeout")
+    check(PositionDetail.outsideGrid.status == .tracking && !PositionDetail.outsideGrid.isProblem, "outside the grid keeps AR tracking and is not a problem")
+    for problem in [PositionDetail.mapMissing, .downloadFailed("x"), .decodeFailed("x"), .timedOut, .sessionFailed("x")] {
+        check(problem.isProblem && problem.canRetry, "\(problem) offers a retry")
+        if case .failed = problem.status {} else { check(false, "\(problem) reports failed status") }
+    }
+    for fine in [PositionDetail.idle, .downloadingMap, .relocalizing, .interrupted, .tracking, .outsideGrid] {
+        check(!fine.isProblem && !fine.canRetry, "\(fine) is not a problem")
+    }
+    check(PositionDetail.timedOut.message.contains("Retry AR"), "the timed-out message points to Retry AR")
+}
+
+// Retry reaches the provider. A spy records what the coordinator asks for.
+@Observable final class SpyAR: PositionProvider {
+    let source = TileSource.ar
+    var tile: MapTile?
+    var status = PositionStatus.idle
+    var detail = PositionDetail.idle
+    var starts = 0
+    var restarts = 0
+    var stops = 0
+    func start(on grid: MapGrid) { starts += 1 }
+    func restart() { restarts += 1 }
+    func stop() { stops += 1 }
+}
+
+do {
+    let spy = SpyAR()
+    let coordinator = PositionCoordinator(ar: spy)
+    coordinator.reportInterval = .milliseconds(10)
+    coordinator.begin(grid: fixtureGrid) { _, _ in }
+    check(spy.starts == 1, "begin starts AR once")
+
+    spy.detail = .tracking
+    coordinator.useManual()
+    coordinator.useAR()
+    check(coordinator.mode == .ar && spy.restarts == 0, "switching back to a healthy AR does not restart it")
+
+    spy.detail = .timedOut
+    coordinator.useManual()
+    coordinator.useAR()
+    check(coordinator.mode == .ar && spy.restarts == 1, "switching to AR after it gave up starts a fresh attempt")
+
+    coordinator.useManual()
+    coordinator.retryAR()
+    check(coordinator.mode == .ar && spy.restarts == 2 && !coordinator.offerManual, "Retry AR leaves manual mode and restarts AR")
+
+    spy.detail = .tracking
+    coordinator.retryAR()
+    check(spy.restarts == 3, "Retry AR always restarts, even when AR looks healthy")
+
+    coordinator.useManual()
+    spy.detail = .timedOut
+    coordinator.appBecameActive()
+    check(spy.restarts == 3, "coming back to the app does not override a player's manual choice")
+    coordinator.useAR()   // restarts (timed out)
+    let before = spy.restarts
+    coordinator.appBecameActive()
+    check(spy.restarts == before + 1, "coming back to the app retries AR that gave up")
+    spy.detail = .tracking
+    coordinator.appBecameActive()
+    check(spy.restarts == before + 1, "coming back to the app leaves working AR alone")
+    check(coordinator.arDetail == .tracking, "the coordinator exposes AR's precise state")
+    coordinator.end()
+}
+
+// The whole recovery with the mock: the first attempt times out, Retry AR recovers, tiles flow with source ar.
+do {
+    let mock = MockARProvider(failsToRelocalize: true, relocalizeAfter: .milliseconds(40))
+    let coordinator = PositionCoordinator(ar: mock)
+    coordinator.reportInterval = .milliseconds(10)
+    var reports: [(MapTile, TileSource)] = []
+    coordinator.begin(grid: fixtureGrid) { tile, source in reports.append((tile, source)) }
+    await settle("first attempt times out") { mock.detail == .timedOut }
+    await settle("the failed attempt is offered manual tiles") { coordinator.offerManual }
+    check(coordinator.arDetail == .timedOut && coordinator.offerManual, "the failed attempt offers manual tiles and a retry")
+    check(reports.isEmpty, "no tile is reported while AR has failed")
+
+    coordinator.useManual()
+    coordinator.pick(MapTile(x: 0, y: 0))
+    await settle("manual tile reported") { reports.contains { $0.1 == .manual } }
+    check(reports.contains { $0.0 == MapTile(x: 0, y: 0) && $0.1 == .manual }, "manual mode still reports its tile")
+
+    coordinator.retryAR()
+    check(mock.detail == .relocalizing && !coordinator.offerManual, "Retry AR starts a fresh attempt and clears the old error")
+    await settle("retry recovers") { mock.detail == .tracking }
+    await settle("AR tile reported") { reports.contains { $0.1 == .ar } }
+    check(reports.contains { $0.1 == .ar }, "after the retry, tiles are reported with source ar")
+    coordinator.end()
+    check(mock.detail == .idle, "ending the game stops AR")
 }
 
 print(failures == 0 ? "OK: \(checks) checks passed" : "FAILED: \(failures) of \(checks) checks")

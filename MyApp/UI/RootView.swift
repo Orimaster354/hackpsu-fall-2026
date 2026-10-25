@@ -24,6 +24,7 @@ extension EnvironmentValues {
 /// - a `PositionCoordinator(ar:)` holding the AR module's `PositionProvider`,
 /// - `startRoomScan`, which opens the AR capture flow for the host.
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var session: GameSession
     @State private var position: PositionCoordinator
     @State private var homePath: [HomeRoute]
@@ -84,6 +85,10 @@ struct RootView: View {
             }
         }
         .task(id: session.stage) { syncWithStage() }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from the background: if AR gave up while the app was away, try once more.
+            if phase == .active { position.appBecameActive() }
+        }
     }
 
     @ViewBuilder private var screen: some View {

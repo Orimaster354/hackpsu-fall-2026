@@ -139,6 +139,17 @@ struct PositionSheet: View {
                     Text("Manual tiles is the fallback when AR cannot find you, and the way to test without AR. Both send the same tile message.")
                 }
 
+                if position.canUseAR {
+                    Section {
+                        Label(position.arDetail.message, systemImage: position.arDetail.icon)
+                        Button("Retry AR") { position.retryAR() }
+                    } header: {
+                        Text("AR status")
+                    } footer: {
+                        Text("Retry AR downloads the host's room map again and looks for your place from scratch. It never starts a new room origin.")
+                    }
+                }
+
                 Section {
                     Toggle("Show everyone on the map", isOn: $showEveryone)
                         .disabled(position.mode != .manual)
