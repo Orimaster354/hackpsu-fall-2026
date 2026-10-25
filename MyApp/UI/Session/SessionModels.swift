@@ -34,13 +34,20 @@ struct PlayerInfo: Identifiable, Hashable {
     var tile: MapTile?
     var alive: Bool
     var tileSource: TileSource
+    /// Lobby readiness from the server. Advisory: it is not an extra start requirement.
+    var ready: Bool
+    /// False while the player's socket is down. A disconnected player keeps their seat.
+    var connected: Bool
 
-    init(id: String, name: String, tile: MapTile? = nil, alive: Bool = true, tileSource: TileSource = .manual) {
+    init(id: String, name: String, tile: MapTile? = nil, alive: Bool = true, tileSource: TileSource = .manual,
+         ready: Bool = false, connected: Bool = true) {
         self.id = id
         self.name = name
         self.tile = tile
         self.alive = alive
         self.tileSource = tileSource
+        self.ready = ready
+        self.connected = connected
     }
 }
 
@@ -146,6 +153,7 @@ struct SessionError: Equatable {
 enum ClientIntent: Equatable {
     case create(name: String)
     case join(room: String, name: String)
+    case ready(Bool)
     case editStation(MapStation)
     case deleteStation(id: String)
     case confirmSetup
@@ -166,6 +174,9 @@ enum ServerEvent: Equatable {
     case lobby(players: [PlayerInfo], grid: MapGrid?, stations: [MapStation], hasMap: Bool)
     case processing(SetupStep)
     case setup(grid: MapGrid, stations: [MapStation])
+    /// The server's `setupConfirmed` flag, sent by the network adapter right after each `lobby` and
+    /// `setup`. The mock does not send it, so the session's local assumption still applies there.
+    case setupStatus(confirmed: Bool)
     case role(PlayerRole)
     case state(GameSnapshot)
     case killed

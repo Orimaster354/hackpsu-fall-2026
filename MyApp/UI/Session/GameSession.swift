@@ -78,7 +78,8 @@ final class GameSession {
     var lobbyStatus: LobbyStatus {
         // The game has started but this phone's `role` has not arrived yet.
         if pending == .start || phase != .lobby { return .starting }
-        let missing = Self.requiredPlayers - players.count
+        // The server needs four connected players. A disconnected player still holds a seat.
+        let missing = Self.requiredPlayers - players.filter(\.connected).count
         if missing > 0 { return .waiting(missing: missing) }
         return isHost && !setupConfirmed ? .needsSetup : .ready
     }
@@ -104,6 +105,12 @@ final class GameSession {
         let code = RoomCode.clamp(code)
         guard pending == nil, PlayerName.isValid(name), RoomCode.isValid(code) else { return }
         begin(.join, sending: .join(room: code, name: name))
+    }
+
+    /// Lobby only. Readiness is advisory; the server does not require it to start.
+    func setReady(_ ready: Bool) {
+        guard phase == .lobby, roomCode != nil else { return }
+        send(.ready(ready))
     }
 
     /// Host only, lobby only. The tile must be an edge tile (docs: `editStation`).
@@ -246,6 +253,8 @@ final class GameSession {
             self.stations = stations
             setupStep = nil
             setupConfirmed = false
+        case let .setupStatus(confirmed):
+            setupConfirmed = confirmed
         case let .role(role):
             self.role = role
         case let .state(snapshot):

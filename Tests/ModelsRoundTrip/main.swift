@@ -35,30 +35,34 @@ let tile = Tile(x: 2, y: 3)
 let player = Player(id: "p1", name: "Ada", tile: tile, alive: true, tileSource: .manual, ready: true, connected: true)
 let meeting = MeetingState(reason: .report, bodyOf: "p2", endsAt: 1_700_000_030_000, votes: ["p1": "p3", "p4": "skip"])
 roundTrip(tile, "Tile")
-roundTrip(Grid(cols: 5, rows: 5, blocked: [Tile(x: 1, y: 1)]), "Grid (server shape)")
-roundTrip(Grid(cols: 5, rows: 5, originX: -0.5, originZ: -0.5, playable: [tile], edge: [tile]), "Grid (scan shape)")
+let sampleGrid = Grid(cols: 5, rows: 5, tileSize: 1, originX: -2.5, originZ: 1.5, playable: [tile], edge: [tile])
+roundTrip(sampleGrid, "Grid")
 roundTrip(Station(id: "s1", name: "Sink", tile: tile, task: .shake, kind: .task), "Station")
 roundTrip(player, "Player")
 roundTrip(meeting, "MeetingState")
 roundTrip(GameState(phase: .meeting, players: [player], tasksDone: 1, tasksTotal: 4, lightsOut: false,
                     killCooldownEndsAt: 1_700_000_000_000, meeting: meeting), "GameState")
 
-// A Grid from an older server has no origin/playable/edge, and may omit `blocked`.
-let legacyGrid = try! JSONDecoder().decode(Grid.self, from: Data(#"{"cols":5,"rows":5,"tileSize":1}"#.utf8))
-check(legacyGrid.blocked.isEmpty && legacyGrid.edge == nil, "Grid decodes without optional fields")
+roundTrip(LobbySnapshot(players: [player], grid: nil, stations: [], hasMap: false, setupConfirmed: false), "LobbySnapshot (null grid)")
+roundTrip(LobbySnapshot(players: [player], grid: sampleGrid, stations: [], hasMap: true, setupConfirmed: true), "LobbySnapshot (setup)")
 
 // MARK: Server messages (decode samples as the server sends them)
 
 func decode(_ text: String) -> ServerMessage? { try? WireCodec.decode(text) }
 
 let playersJSON = #"[{"id":"p1","name":"Ada","tile":null,"alive":true,"tileSource":"manual","ready":false,"connected":true}]"#
-let gridJSON = #"{"cols":5,"rows":5,"tileSize":1,"blocked":[]}"#
+let gridJSON = #"{"cols":5,"rows":5,"tileSize":1,"originX":-2.5,"originZ":1.5,"playable":[{"x":0,"y":0}],"edge":[{"x":0,"y":0}]}"#
 
 check(decode(#"{"t":"joined","playerId":"p1","room":"ABCD"}"#) == .joined(playerId: "p1", room: "ABCD"), "joined")
 
-if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":\#(gridJSON),"stations":[],"hasMap":false}"#) {
-    check(snapshot.players.count == 1 && snapshot.players[0].tile == nil && !snapshot.hasMap, "lobby")
-} else { print("FAIL lobby"); failures += 1 }
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+    check(snapshot.players.count == 1 && snapshot.players[0].tile == nil && !snapshot.hasMap && snapshot.grid == nil && !snapshot.setupConfirmed,
+          "lobby with null grid")
+} else { print("FAIL lobby with null grid"); failures += 1 }
+
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":\#(gridJSON),"stations":[],"hasMap":true,"setupConfirmed":true}"#) {
+    check(snapshot.grid?.originX == -2.5 && snapshot.setupConfirmed && snapshot.hasMap, "lobby with confirmed setup")
+} else { print("FAIL lobby with confirmed setup"); failures += 1 }
 
 check(decode(#"{"t":"role","role":"impostor"}"#) == .role(.impostor), "role")
 check(decode(#"{"t":"role"}"#) == .role(nil), "role without value (reconnect)")
@@ -112,21 +116,36 @@ check(wire(.scanStart) == #"{"t":"scan_start"}"#, "scan_start")
 check(wire(.scanStop) == #"{"t":"scan_stop"}"#, "scan_stop")
 check(wire(.scanFrame(frameId: "f1", timestampMs: 0, jpeg: "AAAA")) == #"{"frameId":"f1","jpeg":"AAAA","t":"scan_frame","timestampMs":0}"#, "scan_frame")
 check(wire(.suggest(photos: ["AAAA"])) == #"{"photos":["AAAA"],"t":"suggest"}"#, "suggest")
-check(wire(.setRoom(grid: Grid(cols: 5, rows: 5), stations: [])) ==
-      #"{"grid":{"blocked":[],"cols":5,"rows":5,"tileSize":1},"stations":[],"t":"setRoom"}"#, "setRoom")
+check(wire(.confirmSetup) == #"{"t":"confirmSetup"}"#, "confirmSetup")
+check(wire(.deleteStation(id: "dial")) == #"{"delete":true,"id":"dial","t":"editStation"}"#, "editStation delete")
+check(wire(.editStation(Station(id: "dial", name: "Door", tile: Tile(x: 0, y: 0), task: .dial, kind: .task))) ==
+      #"{"station":{"id":"dial","kind":"task","name":"Door","task":"dial","tile":{"x":0,"y":0}},"t":"editStation"}"#, "editStation")
 
 // MARK: Shared fixture
 
-let fixtureURL = URL(fileURLWithPath: "docs/fixtures/setup.json")
-if let data = try? Data(contentsOf: fixtureURL) {
-    if case let .setup(grid, stations)? = try? WireCodec.decode(data) {
-        let edge = Set(grid.edge ?? [])
-        check(grid.cols == 5 && grid.rows == 5 && edge.count == 16, "fixture setup.json grid")
-        check(stations.filter { $0.kind == .task }.allSatisfy { edge.contains($0.tile) }, "fixture task stations are on edge tiles")
-        check(stations.contains { $0.kind == .emergency }, "fixture has an emergency station")
-    } else { print("FAIL fixture setup.json does not decode as setup"); failures += 1 }
-} else {
-    print("skip fixture checks (run from the repo root)")
+func fixture(_ path: String) -> ServerMessage? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+        print("skip \(path) (run from the repo root)"); return nil
+    }
+    guard let message = try? WireCodec.decode(data) else {
+        print("FAIL \(path) does not decode"); failures += 1; return nil
+    }
+    return message
+}
+
+for path in ["docs/fixtures/setup.json", "server/fixtures/manual-setup.json"] {
+    if case let .setup(grid, stations, confirmed)? = fixture(path) {
+        let edge = Set(grid.edge)
+        check(grid.cols == 5 && grid.rows == 5 && edge.count == 16 && !confirmed, "\(path) grid")
+        check(stations.filter { $0.kind == .task || $0.kind == .fix }.allSatisfy { edge.contains($0.tile) }, "\(path) task and fix stations are on edge tiles")
+        check(stations.filter { $0.kind == .emergency }.count == 1, "\(path) has one emergency station")
+    }
+}
+if case let .lobby(snapshot)? = fixture("server/fixtures/lobby-empty.json") {
+    check(snapshot.grid == nil && snapshot.stations.isEmpty && !snapshot.setupConfirmed, "server/fixtures/lobby-empty.json")
+}
+if case let .state(state)? = fixture("server/fixtures/state-playing.json") {
+    check(state.players.count == 4 && state.meeting == nil, "server/fixtures/state-playing.json")
 }
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")

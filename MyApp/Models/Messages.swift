@@ -42,7 +42,6 @@ enum ClientMessage: Equatable {
     /// `playerId` is supplied only on reconnect.
     case join(room: String, name: String, playerId: String? = nil)
     case ready(Bool)
-    case setRoom(grid: Grid, stations: [Station])
     /// `photos` holds exactly one base64 JPEG (server limit 4 MiB).
     case suggest(photos: [String], boxes: JSONValue? = nil)
     case scanStart
@@ -67,7 +66,6 @@ enum ClientMessage: Equatable {
         case .create: return "create"
         case .join: return "join"
         case .ready: return "ready"
-        case .setRoom: return "setRoom"
         case .suggest: return "suggest"
         case .scanStart: return "scan_start"
         case .scanFrame: return "scan_frame"
@@ -89,7 +87,7 @@ enum ClientMessage: Equatable {
 
 extension ClientMessage: Encodable {
     private enum Keys: String, CodingKey {
-        case t, name, room, playerId, ready, grid, stations, photos, boxes
+        case t, name, room, playerId, ready, photos, boxes
         case frameId, timestampMs, jpeg, station, id, delete
         case tile, source, stationId, targetId, bodyId, target
     }
@@ -106,9 +104,6 @@ extension ClientMessage: Encodable {
             try c.encodeIfPresent(playerId, forKey: .playerId)
         case let .ready(ready):
             try c.encode(ready, forKey: .ready)
-        case let .setRoom(grid, stations):
-            try c.encode(grid, forKey: .grid)
-            try c.encode(stations, forKey: .stations)
         case let .suggest(photos, boxes):
             try c.encode(photos, forKey: .photos)
             try c.encodeIfPresent(boxes, forKey: .boxes)
@@ -157,9 +152,29 @@ struct ScanStatus: Codable, Hashable {
 
 struct LobbySnapshot: Codable, Hashable {
     var players: [Player]
-    var grid: Grid
+    /// nil until the server has produced a setup for the room.
+    var grid: Grid?
     var stations: [Station]
     var hasMap: Bool
+    /// True once the host confirmed the setup. Locked after that, and still true after a reconnect.
+    var setupConfirmed: Bool
+
+    init(players: [Player], grid: Grid?, stations: [Station], hasMap: Bool, setupConfirmed: Bool) {
+        self.players = players
+        self.grid = grid
+        self.stations = stations
+        self.hasMap = hasMap
+        self.setupConfirmed = setupConfirmed
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        players = try c.decode([Player].self, forKey: .players)
+        grid = try c.decodeIfPresent(Grid.self, forKey: .grid)
+        stations = try c.decode([Station].self, forKey: .stations)
+        hasMap = try c.decode(Bool.self, forKey: .hasMap)
+        setupConfirmed = try c.decodeIfPresent(Bool.self, forKey: .setupConfirmed) ?? false
+    }
 }
 
 struct GameResult: Hashable {
@@ -185,7 +200,7 @@ enum ServerMessage: Equatable {
     case error(code: String, message: String)
     /// Documented scan-processing progress: "polygon", "gemini" or "placing".
     case processing(step: String)
-    case setup(grid: Grid, stations: [Station])
+    case setup(grid: Grid, stations: [Station], setupConfirmed: Bool)
     /// A well-formed frame with a type this client does not know. Ignored, not fatal.
     case unknown(type: String)
 }
@@ -193,7 +208,7 @@ enum ServerMessage: Equatable {
 extension ServerMessage: Decodable {
     private enum Keys: String, CodingKey {
         case t, playerId, room, objects, frameId, timestampMs, role, ejected, winner
-        case code, message, step, grid, stations
+        case code, message, step, grid, stations, setupConfirmed
     }
 
     init(from decoder: Decoder) throws {
@@ -232,7 +247,8 @@ extension ServerMessage: Decodable {
             self = .processing(step: try c.decode(String.self, forKey: .step))
         case "setup":
             self = .setup(grid: try c.decode(Grid.self, forKey: .grid),
-                          stations: try c.decode([Station].self, forKey: .stations))
+                          stations: try c.decode([Station].self, forKey: .stations),
+                          setupConfirmed: try c.decodeIfPresent(Bool.self, forKey: .setupConfirmed) ?? false)
         default:
             self = .unknown(type: type)
         }

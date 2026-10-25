@@ -28,6 +28,8 @@ final class GameClient {
 
     /// Called on the main actor for every decoded server message, including `.error`.
     @ObservationIgnored var onMessage: ((ServerMessage) -> Void)?
+    /// Called whenever `status` changes. For adapters that need to surface a failure immediately.
+    @ObservationIgnored var onStatusChange: ((Status) -> Void)?
     /// Called when the socket is open again after a drop. `join` with the old `playerId` was already
     /// sent; the server answers with `joined`, `lobby`/`state` and the private `role`.
     @ObservationIgnored var onReconnected: (() -> Void)?
@@ -47,6 +49,12 @@ final class GameClient {
     init(session: URLSession = .shared, defaults: UserDefaults = .standard) {
         self.session = session
         self.defaults = defaults
+    }
+
+    private func setStatus(_ new: Status) {
+        guard new != status else { return }
+        status = new
+        onStatusChange?(new)
     }
 
     // MARK: Connection
@@ -69,14 +77,14 @@ final class GameClient {
         roomCode = nil
         playerName = nil
         lobby = nil
-        status = .disconnected
+        setStatus(.disconnected)
     }
 
     private func open(initial: Bool) {
         teardown(closeCode: .goingAway)
         guard let endpoint = endpointOverride ?? ServerConfig.current(defaults: defaults),
               let url = endpoint.webSocketURL else {
-            status = .failed("Invalid server address. Check Settings.")
+            setStatus(.failed("Invalid server address. Check Settings."))
             wantsConnection = false
             return
         }
@@ -84,7 +92,7 @@ final class GameClient {
         let gen = generation
         let socket = session.webSocketTask(with: url)
         task = socket
-        if initial { status = .connecting }
+        if initial { setStatus(.connecting) }
         socket.resume()
         // The server says nothing until it gets `create` or `join`, so a reconnect must send `join`
         // itself instead of waiting for a frame. URLSessionWebSocketTask queues the send until open.
@@ -207,7 +215,7 @@ final class GameClient {
     private func markConnected() {
         let wasReconnect: Bool
         if case .reconnecting = status { wasReconnect = true } else { wasReconnect = false }
-        status = .connected
+        setStatus(.connected)
         if wasReconnect { onReconnected?() }
     }
 
@@ -234,7 +242,7 @@ final class GameClient {
         // Without a remembered session there is nothing to restore; report the failure.
         guard roomCode != nil, playerId != nil, playerName != nil else {
             wantsConnection = false
-            status = .failed(reason)
+            setStatus(.failed(reason))
             return
         }
         scheduleReconnect(attempt: 1, lastReason: reason)
@@ -244,10 +252,10 @@ final class GameClient {
         guard wantsConnection else { return }
         guard attempt <= maxReconnectAttempts else {
             wantsConnection = false
-            status = .failed("Could not reconnect: \(lastReason)")
+            setStatus(.failed("Could not reconnect: \(lastReason)"))
             return
         }
-        status = .reconnecting(attempt: attempt)
+        setStatus(.reconnecting(attempt: attempt))
         let delay = min(pow(2.0, Double(attempt - 1)), 8)
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
