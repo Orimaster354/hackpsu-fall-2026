@@ -15,6 +15,11 @@ function controls() {
   $('start').disabled = !configured || Boolean(controller) || !passes.every((pass) => clips[pass]?.ready);
   $('cancel').disabled = !controller;
   for (const pass of passes) $(pass).disabled = Boolean(controller);
+  const waiting = passes.filter((pass) => !clips[pass]?.ready);
+  $('start-reason').textContent = controller ? 'Analysis is running. Progress appears below.'
+    : !configured ? 'Waiting for a configured Gemini connection.'
+      : waiting.length ? `Choose a valid ${waiting.join(' and ')} video to enable analysis. Check the message below each picker.`
+        : 'Both files selected. Ready to analyze; browser preview is optional.';
 }
 function draw(pass) {
   const canvas = $(`${pass}-box`); const video = $(`${pass}-video`);
@@ -36,28 +41,37 @@ for (const pass of passes) {
   $(pass).addEventListener('change', () => {
     const file = $(pass).files[0];
     if (clips[pass]?.url) URL.revokeObjectURL(clips[pass].url);
-    clips[pass] = { file, ready: false };
+    clips[pass] = { file, valid: false, ready: false };
+    video.removeAttribute('src'); video.load();
     result = null; $('download').disabled = true;
     for (const name of passes) { $(`${name}-detections`).replaceChildren(); if (clips[name]) clips[name].selected = null; draw(name); }
     $('error').hidden = true;
     if (!file) { video.removeAttribute('src'); video.load(); $(`${pass}-info`).textContent = 'No video selected'; controls(); return; }
-    if (!file.name.toLowerCase().endsWith('.mp4') || file.size > 512 * 1024 * 1024 || file.size < 13) {
-      $(`${pass}-info`).textContent = 'Choose an MP4 no larger than 512 MiB.'; controls(); return;
+    if (!/\.(mp4|mov)$/i.test(file.name) || file.size > 512 * 1024 * 1024 || file.size < 13) {
+      $(`${pass}-info`).textContent = 'Choose an MP4 or MOV no larger than 512 MiB.'; controls(); return;
     }
+    clips[pass].valid = true; clips[pass].ready = true;
     clips[pass].url = URL.createObjectURL(file);
     video.src = clips[pass].url;
-    $(`${pass}-info`).textContent = 'Reading video…'; controls();
+    $(`${pass}-info`).textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB · Selected. Server will check duration.`; controls();
   });
   video.addEventListener('loadedmetadata', () => {
     const clip = clips[pass];
-    clip.ready = Number.isFinite(video.duration) && video.duration > 0 && video.duration <= 120;
-    clip.duration = video.duration;
+    if (!clip?.valid || video.currentSrc !== clip.url) return;
+    clip.duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : undefined;
+    clip.ready = clip.duration === undefined || clip.duration <= 120;
     $(`${pass}-info`).textContent = clip.ready
-      ? `${clip.file.name} · ${video.duration.toFixed(1)}s · ${(clip.file.size / 1024 / 1024).toFixed(1)} MiB`
-      : 'Use a readable video no longer than 120 seconds.';
+      ? `${clip.file.name} · ${clip.duration === undefined ? 'Duration checked by server' : `${clip.duration.toFixed(1)}s`} · ${(clip.file.size / 1024 / 1024).toFixed(1)} MiB`
+      : `${clip.file.name} is ${clip.duration.toFixed(1)} seconds. Use a video no longer than 120 seconds.`;
     controls(); draw(pass);
   });
-  video.addEventListener('error', () => { if (clips[pass]) clips[pass].ready = false; $(`${pass}-info`).textContent = 'Browser cannot play this video. Try an H.264 MP4.'; controls(); });
+  video.addEventListener('error', () => {
+    const clip = clips[pass]; if (!clip?.valid) return;
+    if (clip.duration !== undefined && clip.duration > 120) return;
+    clip.ready = true;
+    $(`${pass}-info`).textContent = `${clip.file.name} · Browser preview unavailable. You can still analyze it; the server checks duration and Gemini decodes the original file.`;
+    controls();
+  });
   for (const event of ['seeked', 'timeupdate', 'loadeddata']) video.addEventListener(event, () => draw(pass));
 }
 window.addEventListener('resize', () => passes.forEach(draw));
@@ -76,7 +90,9 @@ function showResult(data) {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-pressed', 'true');
         clips[passResult.pass].selected = detection;
-        const video = $(`${passResult.pass}-video`); video.pause(); video.currentTime = detection.t; draw(passResult.pass);
+        const video = $(`${passResult.pass}-video`);
+        if (video.readyState < 1) { log(`Preview unavailable here. Inspect ${detection.t.toFixed(2)}s in an external player or download the JSON.`); return; }
+        video.pause(); video.currentTime = detection.t; draw(passResult.pass);
       });
       list.append(button);
     }
@@ -97,11 +113,11 @@ $('test-form').addEventListener('submit', async (event) => {
   $('summary').textContent = 'Uploading both videos…';
   const started = Date.now();
   timer = setInterval(() => { $('elapsed').textContent = `${Math.floor((Date.now() - started) / 1000)}s elapsed`; }, 1000);
-  log('Sending both complete MP4 files to the backend.');
+  log('Sending both complete video files to the backend.');
   let gotResult = false;
   try {
     const form = new FormData();
-    for (const pass of passes) { form.append(pass, clips[pass].file); form.append(`${pass}Duration`, String(clips[pass].duration)); }
+    for (const pass of passes) form.append(pass, clips[pass].file);
     const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
     const consume = (line) => {

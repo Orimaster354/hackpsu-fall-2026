@@ -1,6 +1,7 @@
 const { setTimeout: delay } = require('node:timers/promises');
 const { RoomError, requireAction } = require('./errors');
 const { normalizeObjects, DEFAULT_GEMINI_MODEL } = require('./gemini');
+const { movieMetadata } = require('./videoMetadata');
 
 const API = 'https://generativelanguage.googleapis.com';
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024;
@@ -43,15 +44,16 @@ function createVideoDetector({ apiKey = process.env.GEMINI_API_KEY,
       const parts = [{ text: PROMPT }];
       const durations = Object.fromEntries(videos.map((video) => [video.pass, video.duration]));
       for (const video of videos) {
+        const mimeType = video.mimeType || 'video/mp4';
         notify(`Uploading ${video.pass} video to Gemini...`);
         const start = await call(`${API}/upload/v1beta/files`, { method: 'POST', headers: {
           'content-type': 'application/json', 'X-Goog-Upload-Protocol': 'resumable', 'X-Goog-Upload-Command': 'start',
-          'X-Goog-Upload-Header-Content-Length': String(video.bytes.length), 'X-Goog-Upload-Header-Content-Type': 'video/mp4',
+          'X-Goog-Upload-Header-Content-Length': String(video.bytes.length), 'X-Goog-Upload-Header-Content-Type': mimeType,
         }, body: JSON.stringify({ file: { display_name: `roomshift-${video.pass}` } }) });
         const uploadUrl = start.headers.get('x-goog-upload-url');
         requireAction(uploadUrl && new URL(uploadUrl).origin === API, 'GEMINI_INVALID_RESPONSE', 'Invalid upload destination from Gemini.');
         let file = (await (await call(uploadUrl, { method: 'POST', headers: {
-          'content-type': 'video/mp4', 'content-length': String(video.bytes.length),
+          'content-type': mimeType, 'content-length': String(video.bytes.length),
           'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize',
         }, body: video.bytes })).json()).file;
         requireAction(file && /^files\/[a-zA-Z0-9_-]+$/.test(file.name), 'GEMINI_INVALID_RESPONSE', 'Gemini returned no file reference.');
@@ -61,14 +63,14 @@ function createVideoDetector({ apiKey = process.env.GEMINI_API_KEY,
           await delay(pollMs, undefined, { signal: combined });
           file = await (await call(`${API}/v1beta/${file.name}`)).json();
         }
-        requireAction(file.state === 'ACTIVE' && typeof file.uri === 'string', 'GEMINI_VIDEO_FAILED', 'Gemini could not decode a video. Try an H.264 MP4.');
+        requireAction(file.state === 'ACTIVE' && typeof file.uri === 'string', 'GEMINI_VIDEO_FAILED', 'Gemini could not decode a video. Try exporting an H.264 MP4/MOV.');
         const providerDuration = Number.parseFloat(file.videoMetadata?.videoDuration);
         if (Number.isFinite(providerDuration)) {
           requireAction(providerDuration > 0 && providerDuration <= 120, 'INVALID_VIDEO', 'Use clips no longer than 120 seconds.');
           durations[video.pass] = providerDuration;
         }
         parts.push({ text: `Video pass: ${video.pass}. Its timestamps start at zero.` },
-          { fileData: { mimeType: 'video/mp4', fileUri: file.uri }, videoMetadata: { fps: 1 } });
+          { fileData: { mimeType, fileUri: file.uri }, videoMetadata: { fps: 1 } });
       }
       notify(`Analyzing both complete videos with ${model} (up to five minutes total)...`);
       const thinkingConfig = /^gemini-3[.-]/.test(model) ? { thinkingLevel: 'LOW' }
@@ -153,14 +155,13 @@ function createVideoTestHandler(options) {
       catch { throw new RoomError('INVALID_VIDEO', 'Invalid video upload form.'); }
       const videos = [];
       for (const pass of PASSES) {
-        const file = form.get(pass); const duration = Number(form.get(`${pass}Duration`));
+        const file = form.get(pass);
         requireAction(form.getAll(pass).length === 1 && file && typeof file.arrayBuffer === 'function'
-          && file.size > 12 && file.size <= MAX_VIDEO_BYTES && Number.isFinite(duration) && duration > 0 && duration <= 120,
-        'INVALID_VIDEO', 'Choose two MP4 clips, each at most 512 MiB and 120 seconds.');
+          && file.size > 12 && file.size <= MAX_VIDEO_BYTES,
+        'INVALID_VIDEO', 'Choose two MP4 or MOV clips, each at most 512 MiB and 120 seconds.');
         const content = Buffer.from(await file.arrayBuffer());
-        requireAction(content.toString('ascii', 4, 8) === 'ftyp' && ['video/mp4', 'application/octet-stream', ''].includes(file.type),
-          'INVALID_VIDEO', 'Use MP4 videos, preferably encoded with H.264.');
-        videos.push({ pass, bytes: content, duration });
+        const metadata = movieMetadata(content, file.name);
+        videos.push({ pass, bytes: content, ...metadata });
       }
       response.writeHead(200, { 'content-type': 'application/x-ndjson', 'X-Content-Type-Options': 'nosniff' });
       write({ type: 'progress', message: 'Both uploads received. Starting Gemini video test.' });
