@@ -1,83 +1,48 @@
 # Integration notes (Owner D)
 
-## Current backend integration audit
-
-The notes below describe the earlier Phase 0 implementation and its historical conflicts. The latest main/backend merge retains 42 passing backend tests and the approved `playable`/`edge` grid, `editStation`, `confirmSetup`, and immutable configured emergency station. The two-pass video pipeline is the selected design. A local full-video Gemini diagnostic exists; gameplay scan upload/geometry/placement remains pending. Earlier claims below about missing setup events, fixed emergency tile, and client-owned room geometry are superseded by `docs/architecture.md` and `server/CLIENT_INTEGRATION.md`.
-
-D's existing `LobbySnapshot.grid` is non-optional, while normal rooms send null before setup. The Swift lobby/setup models also omit `setupConfirmed`, and NetDebugView lacks a confirmation action before start. Align those on D's branch before claiming full app/server compatibility. Main's Swift files were preserved unchanged in this backend rebase; Mac compilation and physical phone tests remain separate acceptance checks. Use the server handoff JSON fixtures and `npm run start:manual` for manual integration.
-
-Latest main also supplies B's UI. `ContentView` mounts `RootView()`, which defaults to a mock session. The real GameClient-to-GameSession adapter is still required. B's full setup review already has a confirmation action; it needs the server acknowledgement wired back into UI state. Preserve B's completed ghost/setup-review/icon implementation checkboxes, while keeping actual four-device gameplay and task-motion acceptance pending.
-
-Status as of the Phase 0 pass on `feature/integration`. Swift code here was written on Windows and has **not been compiled or run**. First action on a Mac: run the round-trip script (see below) and build the app.
+The contract source of truth is `docs/architecture.md` plus `server/CLIENT_INTEGRATION.md`. This file replaces the earlier Phase 0 notes, whose conflicts are resolved (the two-pass video pipeline is the selected design; `playable`/`edge` grids, `editStation`, `confirmSetup` and the configured emergency station are in the contract). The Swift code below was written on Windows and has **never been compiled or run by the author**. First action on a Mac: build the app, then run the round-trip script.
 
 ## What exists
 | Piece | Path | State |
 |---|---|---|
-| Codable models | `MyApp/Models/GameModels.swift` | written, uncompiled |
-| Wire messages + codec | `MyApp/Models/Messages.swift` | written, uncompiled |
-| Server address parsing | `MyApp/Net/ServerConfig.swift` | written, uncompiled |
-| WebSocket client | `MyApp/Net/GameClient.swift` | written, uncompiled, no device test |
-| Round-trip script | `Tests/ModelsRoundTrip/main.swift` | written, never run |
-| Fixtures | `docs/fixtures/` | generated and checked with Node |
+| Codable models | `MyApp/Models/GameModels.swift` | matches the server: nullable grid, `setupConfirmed`, no `blocked` |
+| Wire messages + codec | `MyApp/Models/Messages.swift` | `setRoom` removed; `editStation`/`confirmSetup` added |
+| Server address parsing | `MyApp/Net/ServerConfig.swift` | reads the Settings address |
+| WebSocket client | `MyApp/Net/GameClient.swift` | connected to the real server from an iPhone and received `lobby`; reconnect untested |
+| UI adapter | `MyApp/Net/LiveConnection.swift` | new, untested: maps `ClientIntent` to wire messages and wire messages to `ServerEvent` |
+| App wiring | `MyApp/ContentView.swift` | mounts `RootView(session: live.session)`; mock only with a launch flag |
+| Debug screen | `MyApp/Net/NetDebugView.swift` | not mounted; show it from `ContentView` temporarily if needed |
+| Round-trip script | `Tests/ModelsRoundTrip/main.swift` | never run; also decodes `docs/fixtures` and `server/fixtures` |
 
-Run on a Mac from the repo root:
-```
-swiftc MyApp/Models/*.swift Tests/ModelsRoundTrip/main.swift -o /tmp/models-roundtrip && /tmp/models-roundtrip
-```
-New Swift files need no `project.pbxproj` edit: the project uses a file-system-synchronized group on `MyApp/`.
+Checked on Windows: all 42 server tests pass; `docs/fixtures/setup.json` and `server/fixtures/manual-setup.json` pass the server's own setup validator; a real four-client game against the server produced frames that contain every field the Swift decoders require (joined, lobby, setup, role, state, error).
 
-## Contract conflicts to resolve (needs a decision)
-`origin/feature/backend` implements and documents a different scan design than `main`'s `docs/architecture.md`.
+## Run it (Mac)
+1. Start the server: `cd server && npm install && npm run start:manual`. `start:manual` seeds each new room with the developer fixture so setup can be confirmed without a scan. Plain `npm start` rooms have no grid until the scan pipeline exists.
+2. Info settings (MyApp target, Info tab): Local Network Usage Description, and App Transport Security > Allow Arbitrary Loads = YES.
+3. Run the app on a phone or the Simulator. Settings > server address `<laptop-ip>:8080` (Simulator: leave blank for localhost).
+4. To use the mock UI instead of the server (Debug builds): add the launch argument `-useMock YES`, or any `-mockScenario <name>`.
+5. Model check, from the repo root: `swiftc MyApp/Models/*.swift Tests/ModelsRoundTrip/main.swift -o /tmp/rt && /tmp/rt`.
 
-| Topic | `main` docs | `feature/backend` (implemented) |
-|---|---|---|
-| Scan upload | two videos + pose logs over HTTP (`/scan/:room/...`), server builds the grid | host streams `scan_frame` JPEGs at <= 1 FPS over WebSocket, app raycasts, host submits `setRoom` |
-| Setup messages | `processing`, `setup`, `editStation`, `confirmSetup` | not implemented; uses `setRoom`, `suggest`/`suggestions`, `scan_*` |
-| Emergency tile | station with `kind: "emergency"` near the room center | fixed at tile (0,0), must stay unblocked |
-| Station kinds | `task`, `fix`, `emergency` | server rejects anything but `task`, `fix` |
-| Grid | `originX/originZ/playable/edge`, no `blocked` | `cols/rows/tileSize/blocked` only; `tileSize` must be 1 |
-| Player | no `ready`/`connected` | has both (documented as approved) |
+Flow to test with four devices: host creates a room; others join by code; host reviews and confirms setup; all four connected; host starts.
 
-How the models handle it: every field from both designs is present. Backend-only fields are required, scan-design fields (`originX`, `originZ`, `playable`, `edge`) are optional, and both message sets exist in `ClientMessage`/`ServerMessage`. Nothing is dropped, but the game cannot use the `main` scan flow until C implements it, or the docs are changed to the backend flow. Owners A and C should not both build against different flows.
+## Changes made to B's files (additive, please review)
+- `SessionModels.swift`: `PlayerInfo` gains `ready` and `connected` (defaulted). `ClientIntent` gains `.ready(Bool)`. `ServerEvent` gains `.setupStatus(confirmed:)`.
+- `GameSession.swift`: handles `.setupStatus`; new `setReady(_:)`; `lobbyStatus` counts connected players only.
+- Not changed: no UI shows `ready` or `connected` yet, and nothing calls `setReady`. That is B's call.
 
-Smaller gaps:
-- `editStation` is documented as either a full station or `{id, delete: true}`. The client sends `{station: {...}}` for edits and `{id, delete: true}` for deletes. Confirm with C.
-- The `emergency` station in `docs/fixtures/setup.json` carries a placeholder `task: "hold"` because `Station.task` is required.
-- `lobby` has no host id. The server's player list is insertion-ordered, so the host is `players[0]`; B's UI already assumes this.
-- `role` can be absent on reconnect before the game starts; the client decodes that as `.role(nil)`.
-- Reconnect needs the same `name` as the original join (server returns `PLAYER_NOT_FOUND` otherwise).
+## Still open
+- **Scan pipeline (Phase 3)** is not built on the server, so real rooms have no grid. Only `start:manual` rooms can reach Start.
+- **Host id:** `lobby` has no `hostId`; the UI uses `players[0]`.
+- **Not in the contract yet:** server time on `state`, per-player completed stations, impostor id on `result`, `leave`. See "Open contract questions" in `docs/tasks.md`.
+- **Reconnect loop risk:** the server closes a replaced socket with code 4000, and the client may try to reconnect after it. Untested.
+- **A (AR):** pass `position:` and `startRoomScan:` in `ContentView` when ready.
 
-## For Owner B (UI on `feature/ios-gameplay`)
-B's `GameSession` takes `ClientIntent`/`ServerEvent`. Mapping onto the wire types:
-
-| B | Wire |
-|---|---|
-| `ClientIntent.create(name:)` | `ClientMessage.create(name:)` |
-| `.join(room:name:)` | `.join(room:name:playerId: nil)` |
-| `.start` | `.start` |
-| `ServerEvent.joined(playerID:room:)` | `.joined(playerId:room:)` |
-| `.lobby(players:)` | `.lobby(LobbySnapshot)`, map `players` to `LobbyPlayer(id:name:)` |
-| `.role(PlayerRole)` | `.role(Role?)` |
-| `.state(phase:)` | `.state(GameState)`, use `.phase` |
-| `.error(SessionError)` | `.error(code:message:)` |
-
-Things B should change: the lobby now has `ready` and `connected` per player; the server needs the host plus four **connected** players to start, so `players.count` alone over-counts disconnected players. The adapter lives on B's side or after both branches merge. D has not written it, to avoid touching B's files.
-
-Wiring: `GameClient().onMessage = { session.receive(map($0)) }` and `session.send = { client.send(map($0)) }`. The Settings screen already stores the address under `serverAddress`, which `ServerConfig` reads.
-
-## For Owner C (server)
-- Decide the scan flow (above).
-- Confirm `editStation` shape and whether `confirmSetup` is wanted.
-- The client sends `ping` frames every 10 s (WebSocket protocol-level, not JSON); `ws` answers automatically.
-- Reconnect sends `join` with `playerId`; the server closes the old socket with code 4000, which the client treats as a drop and may try to reconnect again. If that loops, tell D.
-
-## Demo checklist (draft, to rehearse once the flow is settled)
-Setup (before judges): laptop on phone hotspot, `cd server && npm start`, note LAN IP, enter it in each phone's Settings, all four phones on the hotspot, camera permission granted, a rehearsed room with good light.
-1. Host creates a room; three phones join with the 4-letter code. Everyone taps ready.
-2. Host scans the room; stations appear on edge tiles; host confirms.
-3. Players relocalize (or use the manual tile picker). Roles are revealed privately.
-4. A crew player walks to a station and completes one task.
-5. The impostor kills a player on the same tile; the victim's phone shows the ghost screen.
-6. Another player reports the body; the meeting opens.
-7. Everyone votes; the result screen shows the ejection and the winner.
-Target: under 3 minutes without restart. Rehearse three times; note the time and every failure.
+## Demo checklist (draft)
+Before: laptop on the phone hotspot, `npm run start:manual` (until scan exists), LAN IP in each phone's Settings, all phones on the hotspot, Info settings added.
+1. Host creates a room; three phones join with the 4-letter code.
+2. Host reviews setup on the map and confirms.
+3. Host starts. Roles are revealed privately.
+4. A crew player picks their tile, walks to a station, completes one task.
+5. The impostor kills a player on the same tile; the victim sees the ghost screen.
+6. Another player reports the body; the meeting opens; everyone votes; the result and winner show.
+Target: under 3 minutes with no restart. Rehearse three times and note failures.

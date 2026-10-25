@@ -9,41 +9,16 @@ struct Tile: Codable, Hashable {
     var y: Int
 }
 
-/// 1.0 m tiles on the floor plane. `blocked` is what the current server validates. The optional
-/// fields are the scan-derived layout from docs/architecture.md and are absent from older servers.
+/// 1.0 m tiles on the floor plane (x, z). `originX`/`originZ` are the world position of tile (0,0)'s corner in
+/// the host's ARKit frame. `edge` is a subset of `playable`. Produced by the server; clients never send a grid.
 struct Grid: Codable, Hashable {
     var cols: Int
     var rows: Int
     var tileSize: Double
-    var blocked: [Tile]
-    var originX: Double?
-    var originZ: Double?
-    var playable: [Tile]?
-    var edge: [Tile]?
-
-    init(cols: Int, rows: Int, tileSize: Double = 1.0, blocked: [Tile] = [],
-         originX: Double? = nil, originZ: Double? = nil, playable: [Tile]? = nil, edge: [Tile]? = nil) {
-        self.cols = cols
-        self.rows = rows
-        self.tileSize = tileSize
-        self.blocked = blocked
-        self.originX = originX
-        self.originZ = originZ
-        self.playable = playable
-        self.edge = edge
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        cols = try c.decode(Int.self, forKey: .cols)
-        rows = try c.decode(Int.self, forKey: .rows)
-        tileSize = try c.decode(Double.self, forKey: .tileSize)
-        blocked = try c.decodeIfPresent([Tile].self, forKey: .blocked) ?? []
-        originX = try c.decodeIfPresent(Double.self, forKey: .originX)
-        originZ = try c.decodeIfPresent(Double.self, forKey: .originZ)
-        playable = try c.decodeIfPresent([Tile].self, forKey: .playable)
-        edge = try c.decodeIfPresent([Tile].self, forKey: .edge)
-    }
+    var originX: Double
+    var originZ: Double
+    var playable: [Tile]
+    var edge: [Tile]
 }
 
 enum TaskType: String, Codable, Hashable {
