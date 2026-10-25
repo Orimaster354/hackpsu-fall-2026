@@ -1,6 +1,6 @@
 # Tasks
 
-Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contracts/Net/Integration. Cut order when behind: gesture task, sabotage, Gemini suggestions.
+Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contracts/Net/Integration. Cut order when behind: gesture task, sabotage, Gemini placement (fall back to host-placed stations on edge tiles).
 
 ## Phase 0: Contracts (D, first hour; blocks everything)
 - [ ] D: `MyApp/Models/` Codable types matching `docs/architecture.md`. AC: compiles; sample JSON round-trips.
@@ -19,21 +19,25 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 - [ ] B+C: lights out + fix station. AC: tasks blocked while lights out.
 - [ ] B (cut first): gesture-pattern task.
 
-## Phase 3: Scan and grid (A)
-- [ ] A: RoomPlan scan, derive bounds, build Grid with 1 m tiles. AC: grid dims within 0.5 m of tape measure for a 5x5 m room.
-- [ ] A: save ARWorldMap, upload via `POST /map/:room`; C stores in memory.
-- [ ] A+D: `setRoom` upload with grid and stations; host UI to review.
-- [ ] C: `GET /map/:room`.
+## Phase 3: Scan capture and server grid
+- [ ] A: two-pass capture in one ARKit session (overview, then edge walk): record 720p mp4 plus `poses.json` (about 10 Hz) and intrinsics; guided UI with a pass timer. AC: both uploads succeed over the hotspot in under 30 s total.
+- [ ] A: save ARWorldMap after pass 2, upload via `POST /map/:room`.
+- [ ] C: upload endpoints, in-memory storage, `GET /map/:room`, `POST /scan/:room/process`.
+- [ ] C: polygon + grid from the edge-walk path; `scan_failed` on open loop or area under 4 m^2. AC: a 5x5 m test walk gives dims within 1 tile; test with a recorded `poses.json` fixture, no phone needed.
+- [ ] C: emergency tile at the centroid.
+- [ ] D: shared `poses.json` fixture and sample `setup` JSON committed to `docs/fixtures/` early so A, B and C can work in parallel.
+- [ ] B: host setup review screen (2D map, stations on edge tiles, move/delete/add, confirm).
 
 ## Phase 4: Relocalization and live tiles (A)
 - [ ] A: load map, relocalize, 20 s timeout then manual mode. AC: 3 of 3 joiners relocalize in the real room, or fall back cleanly.
 - [ ] A: compute tile and send at 2-4 Hz; server 2-report filter. AC: two phones standing together report the same tile 90 percent of the time.
 - [ ] Decision gate (hour ~14): if relocalization fails in the real room, ship manual mode and remove AR from the demo path.
 
-## Phase 5: Gemini stations
-- [ ] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo.
-- [ ] A: capture frames, raycast box centers to tiles, map labels to task types.
-- [ ] B: host accept/reject UI. AC: at least 3 stations placed in a scan.
+## Phase 5: Gemini stations and AR icons
+- [ ] C: send both videos to Gemini Flash with JSON output; key from `.env`. AC: returns labeled, timestamped boxes for a test video.
+- [ ] C: place stations: ray from pose at `t` through the box center, intersect the polygon, snap to the nearest edge tile, 2 tile spacing, label to task type. AC: on the fixture, at least 3 stations land on edge tiles.
+- [ ] A: AR overlay: world-anchored question-mark icons on task tiles, EMERGENCY text icon on the emergency tile, wrench on the fix station during lights out, hidden for ghosts and until relocalized. AC: icons stay within one tile of the real spot on 2 phones.
+- [ ] B: icon assets and the 2D map equivalents for manual mode.
 
 ## Phase 6: Demo
 - [ ] D: scripted run (scan, stations, one task, one kill, report, vote) rehearsed 3 times on hotspot. AC: under 3 minutes, no restarts.
