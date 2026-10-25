@@ -15,7 +15,7 @@ const mp4 = movie();
 const json = (value) => new Response(JSON.stringify(value));
 const videos = ['overview', 'edge'].map((pass) => ({ pass, bytes: mp4, duration: 30, mimeType: 'video/mp4' }));
 
-function provider({ quota = false, invalid = false } = {}) {
+function provider({ quota = false, invalid = false, empty = false } = {}) {
   const calls = []; let fileCount = 0;
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options });
@@ -25,9 +25,11 @@ function provider({ quota = false, invalid = false } = {}) {
     if (url.includes('/v1beta/files/')) return json({ name: url.split('/v1beta/')[1], state: 'ACTIVE', uri: url, videoMetadata: { videoDuration: '30s' } });
     if (url.includes(':generateContent')) {
       if (quota) return new Response(null, { status: 429 });
+      const filePart = JSON.parse(options.body).contents[0].parts.find((part) => part.fileData);
+      const overview = filePart.fileData.fileUri.endsWith('clip1');
       return json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: invalid ? 'invalid json' : JSON.stringify([
-        { pass: 'overview', label: 'Wooden table', t: 2.5, box_2d: [100, 200, 500, 800] },
-        { pass: 'edge', label: 'Door', t: 8, box_2d: [0, 100, 900, 500] },
+        ...(empty ? [] : [overview ? { label: 'Wooden table', t: 2.5, box_2d: [100, 200, 500, 800] }
+          : { label: 'Door', t: 8, box_2d: [0, 100, 900, 500] }]),
       ]) }] } }], usageMetadata: { totalTokenCount: 123 } });
     }
     throw new Error('Unexpected provider URL');
@@ -35,20 +37,36 @@ function provider({ quota = false, invalid = false } = {}) {
   return { calls, fetchImpl };
 }
 
-test('two full videos upload, become active, share one inference request and are deleted', async () => {
+test('each full video gets its own detailed inference request and server-owned pass association', async () => {
   const fake = provider();
   const detector = createVideoDetector({ apiKey: 'test-key', fetchImpl: fake.fetchImpl, pollMs: 0 });
   const result = await detector.detect(videos);
   assert.deepEqual(result.passes[0].detections, [{ label: 'Wooden table', t: 2.5, box: [0.2, 0.1, 0.6, 0.4] }]);
   assert.equal(result.passes[1].detections[0].t, 8);
   const generation = fake.calls.filter((call) => call.url.includes(':generateContent'));
-  assert.equal(generation.length, 1);
-  const body = JSON.parse(generation[0].options.body);
-  assert.equal(body.contents[0].parts.filter((part) => part.fileData).length, 2);
-  assert.ok(body.contents[0].parts.filter((part) => part.fileData).every((part) => part.videoMetadata.fps === 1));
+  assert.equal(generation.length, 2);
+  for (const request of generation) {
+    const body = JSON.parse(request.options.body);
+    assert.equal(body.contents[0].parts.filter((part) => part.fileData).length, 1);
+    assert.ok(body.contents[0].parts.filter((part) => part.fileData).every((part) => part.videoMetadata.fps === 2));
+    assert.equal(body.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_HIGH');
+    assert.equal(body.generationConfig.temperature, 0);
+    assert.equal(body.generationConfig.responseSchema.maxItems, 6);
+    assert.ok(!body.generationConfig.responseSchema.items.required.includes('pass'));
+  }
+  assert.equal(result.passes[0].detections.length, 1); assert.equal(result.passes[1].detections.length, 1);
+  assert.equal(result.analysis.inferenceRequests, 2);
+  assert.equal(result.usage.overview.totalTokenCount, 123);
+  assert.equal(result.usage.edge.totalTokenCount, 123);
   assert.equal(fake.calls.filter((call) => call.options.method === 'DELETE').length, 2);
   assert.equal(fake.calls.filter((call) => call.options.body === mp4).length, 2);
   assert.ok(!JSON.stringify(result).includes('test-key'));
+});
+
+test('uncertain videos return no landmarks rather than fabricated fallback stations', async () => {
+  const fake = provider({ empty: true });
+  const result = await createVideoDetector({ apiKey: 'test-key', fetchImpl: fake.fetchImpl, pollMs: 0 }).detect(videos);
+  assert.ok(result.passes.every((pass) => pass.detections.length === 0));
 });
 
 test('MOV uses QuickTime MIME throughout provider upload and inference', async () => {

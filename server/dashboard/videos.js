@@ -153,7 +153,7 @@ window.addEventListener('pagehide', () => { controller?.abort(); for (const clip
     const response = await fetch('/api/dashboard/video-test', { cache: 'no-store' });
     if (!response.ok) throw new Error('Cannot read video test configuration.');
     const config = await response.json(); configured = config.configured;
-    $('configuration').textContent = `Model: ${config.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${config.busy ? ' · Another test is running' : ''}`;
+    $('configuration').textContent = `Model: ${config.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${config.quality ? ` · High detail, ${config.quality.fps} FPS, ${config.quality.maxObjectsPerPass} landmarks/pass · Videos analyzed separately` : ''}${config.busy ? ' · Another test is running' : ''}`;
     $('status').textContent = configured ? 'READY' : 'KEY REQUIRED'; controls();
   } catch (error) { $('configuration').textContent = error.message; $('status').textContent = 'SERVER UNREACHABLE'; }
 })();
