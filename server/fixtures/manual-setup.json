@@ -1,0 +1,27 @@
+{
+  "t": "setup",
+  "setupConfirmed": false,
+  "grid": {
+    "cols": 5, "rows": 5, "tileSize": 1, "originX": -2.5, "originZ": 1.5,
+    "playable": [
+      {"x":0,"y":0},{"x":1,"y":0},{"x":2,"y":0},{"x":3,"y":0},{"x":4,"y":0},
+      {"x":0,"y":1},{"x":1,"y":1},{"x":2,"y":1},{"x":3,"y":1},{"x":4,"y":1},
+      {"x":0,"y":2},{"x":1,"y":2},{"x":2,"y":2},{"x":3,"y":2},{"x":4,"y":2},
+      {"x":0,"y":3},{"x":1,"y":3},{"x":2,"y":3},{"x":3,"y":3},{"x":4,"y":3},
+      {"x":0,"y":4},{"x":1,"y":4},{"x":2,"y":4},{"x":3,"y":4},{"x":4,"y":4}
+    ],
+    "edge": [
+      {"x":0,"y":0},{"x":1,"y":0},{"x":2,"y":0},{"x":3,"y":0},{"x":4,"y":0},
+      {"x":0,"y":1},{"x":4,"y":1},{"x":0,"y":2},{"x":4,"y":2},
+      {"x":0,"y":3},{"x":4,"y":3},
+      {"x":0,"y":4},{"x":1,"y":4},{"x":2,"y":4},{"x":3,"y":4},{"x":4,"y":4}
+    ]
+  },
+  "stations": [
+    {"id":"dial","name":"Door dial","tile":{"x":0,"y":0},"task":"dial","kind":"task"},
+    {"id":"hold","name":"Desk hold","tile":{"x":4,"y":0},"task":"hold","kind":"task"},
+    {"id":"tilt","name":"Sofa tilt","tile":{"x":2,"y":4},"task":"tilt","kind":"task"},
+    {"id":"fix","name":"Lights","tile":{"x":0,"y":2},"task":"hold","kind":"fix"},
+    {"id":"emergency","name":"Emergency","tile":{"x":2,"y":2},"task":"hold","kind":"emergency"}
+  ]
+}

@@ -13,8 +13,14 @@ function connectClient(url) {
     }
     socket.on('message', (raw) => {
       const message = JSON.parse(raw.toString());
-      if (message.t === 'error') return fail(new Error(`${message.code}: ${message.message}`));
       const index = waiters.findIndex((waiter) => waiter.predicate(message));
+      if (message.t === 'error' && index < 0 && waiters.length) {
+        for (const waiter of waiters.splice(0)) {
+          clearTimeout(waiter.timer);
+          waiter.reject(new Error(`${message.code}: ${message.message}`));
+        }
+        return;
+      }
       if (index < 0) {
         inbox.push(message);
         if (inbox.length > 500) inbox.shift();
@@ -33,6 +39,11 @@ function connectClient(url) {
         if (failure) return Promise.reject(failure);
         const index = inbox.findIndex(predicate);
         if (index >= 0) return Promise.resolve(inbox.splice(index, 1)[0]);
+        const errorIndex = inbox.findIndex((message) => message.t === 'error');
+        if (errorIndex >= 0) {
+          const [error] = inbox.splice(errorIndex, 1);
+          return Promise.reject(new Error(`${error.code}: ${error.message}`));
+        }
         return new Promise((done, failed) => {
           const waiter = { predicate, resolve: done, reject: failed };
           waiter.timer = setTimeout(() => {
