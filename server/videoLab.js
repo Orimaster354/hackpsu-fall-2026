@@ -3,6 +3,7 @@ const { RoomError, requireAction } = require('./errors');
 const { normalizeObjects, DEFAULT_GEMINI_MODEL } = require('./gemini');
 const { movieMetadata } = require('./videoMetadata');
 const { createYoloDetector } = require('./yoloDetector');
+const { createStationPlanner } = require('./stationPlanner');
 
 const API = 'https://generativelanguage.googleapis.com';
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024;
@@ -141,6 +142,7 @@ function readBody(request) {
 function createVideoTestHandler(options) {
   const detector = options?.videoDetector || createVideoDetector(options?.videoDetectorOptions);
   const yoloDetector = options?.yoloDetector || createYoloDetector(options?.yoloDetectorOptions);
+  const planner = options?.stationPlanner || createStationPlanner(options?.stationPlannerOptions);
   let busy = false;
   return async (request, response) => {
     const controller = new AbortController();
@@ -154,6 +156,7 @@ function createVideoTestHandler(options) {
       if (request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ configured: detector.configured, model: detector.model, quality: detector.quality || null,
+          defaultDetector: 'yoloe', reasoning: { configured: planner.configured, model: planner.model },
           detectors: { gemini: { configured: detector.configured, model: detector.model, quality: detector.quality || null },
             yoloe: { configured: yoloDetector.configured, model: yoloDetector.model, quality: yoloDetector.quality || null } },
           maxVideoBytes: MAX_VIDEO_BYTES, busy })); return;
@@ -168,7 +171,7 @@ function createVideoTestHandler(options) {
       let form;
       try { form = await new Request('http://localhost/', { method: 'POST', headers: { 'content-type': request.headers['content-type'] }, body: bytes }).formData(); }
       catch { throw new RoomError('INVALID_VIDEO', 'Invalid video upload form.'); }
-      const engine = form.get('detector') || 'gemini';
+      const engine = form.get('detector') || 'yoloe';
       requireAction(engine === 'gemini' || engine === 'yoloe', 'INVALID_DETECTOR', 'Choose Gemini or YOLOE.');
       const selected = engine === 'yoloe' ? yoloDetector : detector;
       requireAction(selected.configured, engine === 'yoloe' ? 'YOLOE_NOT_READY' : 'GEMINI_NOT_CONFIGURED',
@@ -186,6 +189,14 @@ function createVideoTestHandler(options) {
       response.writeHead(200, { 'content-type': 'application/x-ndjson', 'X-Content-Type-Options': 'nosniff' });
       write({ type: 'progress', message: `Both uploads received. Starting ${engine === 'yoloe' ? 'local YOLOE' : 'Gemini'} video test.` });
       const result = await selected.detect(videos, { signal: controller.signal, notify: (message) => write({ type: 'progress', message }) });
+      if (form.get('reasoning') === '1') {
+        write({ type: 'progress', message: 'Gemini is ranking detection metadata and suggesting phone tasks. Physical locations remain pending geometry.' });
+        try { result.planning = await planner.plan(result, { signal: controller.signal }); }
+        catch (error) {
+          result.planning = { status: 'unavailable', code: error instanceof RoomError ? error.code : 'PLANNER_UNAVAILABLE',
+            summary: error instanceof RoomError ? error.message : 'Station reasoning failed. Detections are retained.', suggestions: [], placementReady: false };
+        }
+      }
       write({ type: 'result', ...result });
     } catch (error) {
       request.resume();

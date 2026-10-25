@@ -24,6 +24,19 @@ class OverlapTests(unittest.TestCase):
         worker.remember(tracks, {**candidate, "t": 10})
         self.assertEqual(len(tracks), 3)  # No claim of persistent world identity after a gap.
 
+    def test_chairs_do_not_crowd_out_other_detected_categories(self):
+        candidates = [{"label": "chair", "confidence": 0.95 - i * 0.01} for i in range(10)]
+        candidates += [{"label": "desk", "confidence": 0.6}, {"label": "door", "confidence": 0.4}]
+        chosen = worker.diverse_best(candidates, 8, 2, lambda item: item["confidence"])
+        self.assertEqual(sum(item["label"] == "chair" for item in chosen), 2)
+        self.assertTrue({"desk", "door"}.issubset({item["label"] for item in chosen}))
+
+    def test_new_categories_can_enter_after_many_chair_views(self):
+        tracks = [{"label": "chair", "lastSeen": i, "lastBox": [0, 0, 0.2, 0.2],
+                   "best": {"label": "chair", "confidence": 0.8}} for i in range(64)]
+        worker.remember(tracks, {"label": "door", "t": 100, "box": [0.5, 0.5, 0.2, 0.2], "confidence": 0.4})
+        self.assertTrue(any(track["label"] == "door" for track in tracks))
+
 
 if __name__ == "__main__":
     unittest.main()

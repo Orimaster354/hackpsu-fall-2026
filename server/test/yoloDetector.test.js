@@ -70,20 +70,36 @@ test('cancellation and invalid worker output remove local temporary uploads', as
 });
 
 test('dashboard can choose local YOLOE without a configured Gemini key', async (t) => {
-  let calls = 0;
+  let calls = 0; let planningCalls = 0; let failPlanning = false;
   const app = createAppServer({ videoDetector: { configured: false, model: 'not-configured' },
-    yoloDetector: { configured: true, model: MODEL, async detect(input) { calls += 1; assert.equal(input.length, 2); return { ...result(), elapsedMs: 1 }; } } });
+    yoloDetector: { configured: true, model: MODEL, async detect(input) { calls += 1; assert.equal(input.length, 2); return { ...result(), elapsedMs: 1 }; } },
+    stationPlanner: { configured: true, model: 'test-reasoning', async plan(detections) {
+      planningCalls += 1; assert.equal(detections.model, MODEL);
+      if (failPlanning) throw new Error('provider failed');
+      return { status: 'needs_geometry', placementReady: false, suggestions: [], summary: 'Review candidates before physical placement.' };
+    } } });
   const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
   const url = `http://127.0.0.1:${address.port}/api/dashboard/video-test`;
   const config = await (await fetch(url)).json();
   assert.equal(config.detectors.yoloe.configured, true); assert.equal(config.detectors.gemini.configured, false);
+  assert.equal(config.defaultDetector, 'yoloe');
   const header = Buffer.from([0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0]);
   const movie = Buffer.alloc(36); movie.writeUInt32BE(36); movie.write('moov', 4); movie.writeUInt32BE(28, 8); movie.write('mvhd', 12);
   movie.writeUInt32BE(1000, 28); movie.writeUInt32BE(3000, 32);
-  const body = new FormData(); body.set('detector', 'yoloe');
+  const body = new FormData(); // Omitting detector now defaults to the primary local YOLOE model.
   for (const pass of ['overview', 'edge']) body.set(pass, new Blob([header, movie], { type: 'video/mp4' }), `${pass}.mp4`);
   const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
   assert.equal(response.status, 200); assert.match(await response.text(), /yoloe-26s-seg.pt/); assert.equal(calls, 1);
+  assert.equal(planningCalls, 0);
+  body.set('reasoning', '1');
+  const planned = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const plannedEvents = (await planned.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(plannedEvents.at(-1).planning.status, 'needs_geometry');
+  failPlanning = true;
+  const failed = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const retained = (await failed.text()).trim().split('\n').map(JSON.parse).at(-1);
+  assert.equal(retained.type, 'result'); assert.equal(retained.planning.status, 'unavailable');
+  assert.equal(retained.passes.length, 2); assert.equal(planningCalls, 2);
   body.set('detector', 'unknown');
   const bad = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
   assert.equal(bad.status, 400); assert.match(await bad.text(), /INVALID_DETECTOR/);
