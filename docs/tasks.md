@@ -42,3 +42,13 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 ## Phase 6: Demo
 - [ ] D: scripted run (scan, stations, one task, one kill, report, vote) rehearsed 3 times on hotspot. AC: under 3 minutes, no restarts.
 - [ ] D: README setup verified on a clean machine.
+
+## AR integration notes (2026-10-24)
+- The AR branch follows the new capture-only contract: local RoomPlan geometry, grid generation and rectangular-room completion have been removed. Physical acceptance criteria remain unchecked.
+- D/B: `ARTrackingSession.configureGrid(...)` accepts the documented server Grid fields; map `Tile` values to `SIMD2<Int>`. Connect `onTileReport(x, y, source)` to GameClient's `tile` message and `onManualModeRequested` to B's manual picker. Configure the grid and icon presentation inputs after loading the world map; loading a new map clears old setup to prevent cross-room rendering.
+- D/B: translate Stations into `ARStationIcon` presentation inputs and call `setStationIcons(_:alive:lightsOut:)` on setup/state changes. Per-player completed station IDs are needed to dim individual icons, but are absent from the current GameState contract. Agree how they are supplied; AR does not infer completion from tasksDone.
+- D/C: capture JSON matches the documented fields. Video is center-cropped to 1280x720 in native sensor orientation (no display rotation); intrinsics are transformed to that encoded image. Pose quaternions are camera-to-world, scalar-last, in the shared ARKit frame; camera forward is local -z. Each pass's time zero is its first encoded frame.
+- C/D: HTTP host identification is not specified. AR currently sends only the documented multipart/binary fields and routes; agree host validation before calling these end-to-end verified.
+- App owner/D: inspect local-network privacy and ATS settings for HTTP LAN/hotspot use (`NSLocalNetworkUsageDescription`, scoped `NSAppTransportSecurity`/`NSAllowsLocalNetworking` as appropriate). AR has not changed the app plist or weakened transport policy.
+- D/B: icon elevation is unspecified. The initial overlay uses world y=0 (host session's starting camera height); agree a floor/height reference if needed. No new field was added to Grid or Station.
+- D: Models, GameClient and docs/fixtures are still absent from this checkout. Primitive adapters and a local HTTP test server permit AR work without creating competing gameplay models; real server setup/WebSocket integration remains pending.
