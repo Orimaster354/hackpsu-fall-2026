@@ -178,5 +178,20 @@ do {
     check(HammerModel.needed >= 4 && HammerModel.needed <= 8, "the nail takes a handful of hits, not one")
 }
 
+// AR props appear on the current view ray, independent of the synthetic room origin.
+do {
+    let camera = SIMD3<Float>(3, 1.6, -2)
+    for look in [SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, -1, 0)] {
+        let base = TaskPropPlacement.base(camera: camera, look: look)
+        let surface = base + SIMD3<Float>(0, 0.75, 0)
+        let expected = camera + look * 0.9
+        let error = surface - expected
+        check(abs(error.x) + abs(error.y) + abs(error.z) < 0.0001,
+              "manual prop surface is directly ahead, even looking straight down")
+    }
+    let origin = TaskPropPlacement.base(camera: .zero, look: [0, 0, -4])
+    check(abs(origin.z + 0.9) < 0.0001, "preview distance does not depend on direction magnitude")
+}
+
 print(failures == 0 ? "OK: \(checks) task checks passed" : "FAILED: \(failures) of \(checks) task checks")
 exit(failures == 0 ? 0 : 1)

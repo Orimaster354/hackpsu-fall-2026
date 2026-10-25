@@ -93,13 +93,12 @@ struct GameView: View {
         }
     }
 
-    /// With AR tracking, stepping onto an unfinished task tile opens its task (and the camera),
-    /// once per visit. In manual mode the player taps "Do task" instead, so a map tap never
-    /// launches a task by accident.
+    /// Entering an unfinished task tile opens its task once per visit, including a confirmed manual map tap.
+    /// Closing a task snoozes it until the player leaves the tile.
     private func openTaskOnArrival() {
         let here = session.taskStationHere
         if here?.id != snoozedStationID { snoozedStationID = nil }
-        guard position.mode == .ar, taskStation == nil, !fixTraceOpen, !taskCameraInUse, !showPosition,
+        guard taskStation == nil, !fixTraceOpen, !taskCameraInUse, !showPosition,
               let station = here, station.id != snoozedStationID,
               session.canDoTask(at: station) else { return }
         taskCameraInUse = true
@@ -111,9 +110,9 @@ struct GameView: View {
             && (position.ar as? ARPositionProvider)?.isSessionRunning == true
     }
 
-    /// A fix panel opens once per visit in real AR. Simulator and manual play use an explicit button.
+    /// A fix panel opens once per visit in real AR or a demo; ordinary manual fallback keeps its button.
     private func openFixOnArrival() {
-        guard canFixInAR, !fixTraceSnoozed else { return }
+        guard canFixInAR || session.isDemo, !fixTraceSnoozed else { return }
         openFixTrace()
     }
 

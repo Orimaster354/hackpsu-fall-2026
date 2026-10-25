@@ -19,9 +19,10 @@ struct TaskARBackdrop: UIViewRepresentable {
     let arView: ARView
     let task: TaskKind
     let telemetry: TaskTelemetry
+    var inFrontOfCamera = false
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(task: task, telemetry: telemetry)
+        Coordinator(task: task, telemetry: telemetry, inFrontOfCamera: inFrontOfCamera)
     }
 
     func makeUIView(context: Context) -> ARView {
@@ -43,6 +44,7 @@ struct TaskARBackdrop: UIViewRepresentable {
         let anchor = AnchorEntity(world: .zero)
         private let task: TaskKind
         private let telemetry: TaskTelemetry
+        private let inFrontOfCamera: Bool
         private weak var view: ARView?
         private var updates: Cancellable?
 
@@ -73,7 +75,8 @@ struct TaskARBackdrop: UIViewRepresentable {
         private static let good = UIColor.systemGreen
         private static let failed = UIColor.systemRed
 
-        init(task: TaskKind, telemetry: TaskTelemetry) {
+        init(task: TaskKind, telemetry: TaskTelemetry, inFrontOfCamera: Bool) {
+            self.inFrontOfCamera = inFrontOfCamera
             self.task = task
             self.telemetry = telemetry
             build()
@@ -176,25 +179,30 @@ struct TaskARBackdrop: UIViewRepresentable {
             let look = -SIMD3<Float>(t.columns.2.x, t.columns.2.y, t.columns.2.z)
             let heading = SIMD3<Float>(look.x, 0, look.z)
             let headingLength = simd_length(heading)
+            let forward = headingLength > 0.3 ? heading / headingLength : SIMD3<Float>(0, 0, -1)
 
             if telemetry.recenterRequested {
                 telemetry.recenterRequested = false
-                if headingLength > 0.3 { place(camera: camera, heading: heading / headingLength) }
+                if inFrontOfCamera || headingLength > 0.3 { place(camera: camera, heading: forward, look: look) }
             }
             if !placed {
-                guard headingLength > 0.3 else { return }
-                place(camera: camera, heading: heading / headingLength)
-            } else if headingLength > 0.5 {
-                recenterIfOutOfView(camera: camera, look: look, heading: heading / headingLength)
+                guard inFrontOfCamera || headingLength > 0.3 else { return }
+                place(camera: camera, heading: forward, look: look)
+            } else if inFrontOfCamera || headingLength > 0.5 {
+                recenterIfOutOfView(camera: camera, look: look, heading: forward)
             }
             updateAim(camera: camera, look: look)
             animate()
         }
 
-        private func place(camera: SIMD3<Float>, heading: SIMD3<Float>) {
+        private func place(camera: SIMD3<Float>, heading: SIMD3<Float>, look: SIMD3<Float>) {
             let flat = task == .tilt || task == .gesture
             var position = camera + heading * (flat ? 0.1 : 1.1)
             position.y = camera.y - 1.0
+            if inFrontOfCamera {
+                // The working surface is 0.6–0.9 m above the prop base: put that surface on the view ray.
+                position = TaskPropPlacement.base(camera: camera, look: look)
+            }
             // Turns the prop's -z axis to the player's heading, so +x is their right.
             let yaw = atan2(-heading.x, -heading.z)
             anchor.position = position
@@ -222,7 +230,7 @@ struct TaskARBackdrop: UIViewRepresentable {
             }
             let since = outOfViewSince ?? Date()
             outOfViewSince = since
-            if Date().timeIntervalSince(since) > 2 { place(camera: camera, heading: heading) }
+            if Date().timeIntervalSince(since) > 2 { place(camera: camera, heading: heading, look: look) }
         }
 
         private func animate() {

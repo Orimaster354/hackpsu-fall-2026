@@ -15,6 +15,7 @@ struct FixTraceSheet: View {
     @Environment(GameSession.self) private var session
     @State private var controller = FixTraceController(input: .touch)
     @State private var prefersTouch = false
+    @State private var preview = TaskARPreview()
     @State private var outcome = Outcome.running
     @State private var attempt = 0
     @State private var deadline = Date.now
@@ -39,6 +40,13 @@ struct FixTraceSheet: View {
         .overlay { CompletionFlash(trigger: flashes, tint: Theme.Palette.neon) }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
+        .task {
+            if position.mode == .manual, canAttempt, sharedARView == nil {
+                (position.ar as? ARPositionProvider)?.prepareForManualTask()
+                await preview.start()
+            }
+            if Task.isCancelled || !canAttempt { preview.stop() }
+        }
         .task(id: usesAR) { await trackInput() }
         .task(id: attempt) { await runClock() }
         .task(id: outcome) {
@@ -64,7 +72,7 @@ struct FixTraceSheet: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.cancelStroke() }
         }
-        .onDisappear { controller.cancelStroke() }
+        .onDisappear { controller.cancelStroke(); preview.stop() }
         .sensoryFeedback(.impact(weight: .light), trigger: controller.strokesStarted)
         .sensoryFeedback(trigger: controller.verdicts) { _, _ in
             controller.isAccepted ? .success : .warning
@@ -84,11 +92,11 @@ struct FixTraceSheet: View {
             && session.fixStation?.id == station.id
     }
 
-    private var arView: ARView? {
-        guard position.mode == .ar, let provider = position.ar as? ARPositionProvider,
-              provider.isSessionRunning else { return nil }
-        return provider.arView
+    private var sharedARView: ARView? {
+        (position.ar as? ARPositionProvider)?.taskARView
     }
+
+    private var arView: ARView? { sharedARView ?? preview.arView }
 
     private var usesAR: Bool { arView != nil && !prefersTouch }
 

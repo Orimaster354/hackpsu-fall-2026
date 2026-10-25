@@ -26,7 +26,7 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 3. Network: join all phones to one phone hotspot, run the server on a laptop on it, and enter the laptop's LAN IP in the app's settings.
 
 ## Demo without scanning
-Run the normal server (`cd server && npm start`), then enter a name and tap **Create demo room**. The host can edit the preset 8x8 map and choose task types before confirming. Three other phones join the room code normally; all four use map taps to move. Tasks use actual motion sensors, and the fix station offers touch glyph drawing. Demo rooms skip scanning and AR relocalization; normal rooms remain available through **Create room**. Use the updated server for the demo button.
+Run the normal server (`cd server && npm start`), then enter a name and tap **Create demo room**. The host can edit the preset 8x8 map and choose task types before confirming. Three other phones join the room code normally; all four use map taps to move. Entering a task tile opens its local AR prop in front of the phone, driven by actual motion sensors. The fix station opens an AR glyph drawing panel with touch fallback. No shared AR map is needed; devices without AR use the 2D task controls. Demo rooms skip scanning and AR relocalization; normal rooms remain available through **Create room**. Use the updated server for the demo button.
 
 ## Docs
 - `docs/architecture.md`: modules, models, protocol.

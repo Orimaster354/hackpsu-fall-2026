@@ -277,3 +277,16 @@ extension PatternModel.Direction {
         }
     }
 }
+
+
+/// Position only the task prop, never the player or room grid. The working surface sits above its base.
+nonisolated enum TaskPropPlacement {
+    static let workingHeight: Float = 0.75
+    static let distance: Float = 0.9
+
+    static func base(camera: SIMD3<Float>, look: SIMD3<Float>) -> SIMD3<Float> {
+        let length = sqrt(look.x * look.x + look.y * look.y + look.z * look.z)
+        let direction = length > 0.001 ? look / length : SIMD3<Float>(0, 0, -1)
+        return camera + direction * distance - SIMD3<Float>(0, workingHeight, 0)
+    }
+}

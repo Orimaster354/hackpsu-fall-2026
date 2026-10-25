@@ -15,6 +15,7 @@ struct MotionTaskSheet: View {
     @Environment(\.gameAudio) private var audio
     @State private var sensor = MotionSensor()
     @State private var camera = CameraFeed()
+    @State private var preview = TaskARPreview()
     @State private var telemetry = TaskTelemetry()
     @Environment(PositionCoordinator.self) private var position
     @Environment(GameSession.self) private var session
@@ -46,7 +47,15 @@ struct MotionTaskSheet: View {
         .overlay { CompletionFlash(trigger: flashes) }
         .preferredColorScheme(.dark)
         // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
-        .task { if session.canAttemptTasks, arView == nil { await camera.start() } }
+        .task {
+            guard session.canAttemptTasks else { return }
+            if position.mode == .manual, sharedARView == nil {
+                (position.ar as? ARPositionProvider)?.prepareForManualTask()
+                await preview.start()
+            }
+            guard !Task.isCancelled, session.canAttemptTasks else { preview.stop(); return }
+            if arView == nil { await camera.start() }
+        }
         .task(id: attempt) { await runClock() }
         .onChange(of: session.canAttemptTasks) { _, allowed in
             if !allowed { cancelAttempt() }
@@ -55,6 +64,7 @@ struct MotionTaskSheet: View {
         .onDisappear {
             sensor.stop()
             camera.stop()
+            preview.stop()
         }
         .onChange(of: canFinish) { _, canFinish in
             if canFinish, outcome == .awaitingTile { finish() }
@@ -73,16 +83,23 @@ struct MotionTaskSheet: View {
 
     /// The AR session's shared view, whenever ARKit owns the camera (even while it is still finding its place, or
     /// when the player chose manual tiles). The task is drawn on that view, never on a second camera.
-    private var arView: ARView? {
-        guard let provider = position.ar as? ARPositionProvider, provider.isSessionRunning else { return nil }
-        return provider.arView
+    private var sharedARView: ARView? {
+        guard let provider = position.ar as? ARPositionProvider else { return nil }
+        return provider.taskARView
     }
 
-    /// True when the task is played on the 3D prop in the room: AR is the position source and tracking is good.
-    /// Then the prop is the task, the flat 2D controls are hidden, and progress needs the camera on the prop.
-    /// In manual mode, or without tracking, the 2D controls are the task, as before.
+    private var arView: ARView? { sharedARView ?? preview.arView }
+
+    /// Visual tracking is independent of tile input. Manual games may use a local task-only AR frame.
+    /// If tracking is unavailable, retain the 2D task controls.
     private var playsInAR: Bool {
-        position.mode == .ar && position.status == .tracking && arView != nil
+        guard arView != nil else { return false }
+        if position.mode == .manual {
+            if preview.arView != nil { return preview.isTracking }
+            return (position.ar as? ARPositionProvider)?.isSessionRunning == true
+                && sharedARView?.session.currentFrame?.camera.trackingState == .normal
+        }
+        return position.status == .tracking
     }
 
     /// One line on what the prop shows for this task.
@@ -101,7 +118,7 @@ struct MotionTaskSheet: View {
     @ViewBuilder private var backdrop: some View {
         if let arView {
             ZStack {
-                TaskARBackdrop(arView: arView, task: task, telemetry: telemetry)
+                TaskARBackdrop(arView: arView, task: task, telemetry: telemetry, inFrontOfCamera: position.mode == .manual)
                 LinearGradient(
                     colors: [.black.opacity(0.55), .clear, .black.opacity(0.55)],
                     startPoint: .top,
@@ -289,6 +306,7 @@ struct MotionTaskSheet: View {
         outcome = .cancelled
         sensor.stop()
         camera.stop()
+        preview.stop()
         dismiss()
     }
 

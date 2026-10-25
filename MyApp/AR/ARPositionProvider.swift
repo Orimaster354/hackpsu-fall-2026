@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import RealityKit
 import Foundation
 import Observation
@@ -42,6 +43,15 @@ final class ARPositionProvider: PositionProvider {
 
     /// ARKit owns the camera right now. While true, nothing else (an AVCaptureSession) may use it.
     var isSessionRunning: Bool { tracking.isRunning && !tracking.isInterrupted }
+
+    /// Keep borrowing the same view through interruptions; never open a second camera then.
+    var taskARView: ARView? { tracking.isRunning ? tracking.arView : nil }
+
+    /// Manual fallback may be selected while a map download is still in flight. Cancel it before
+    /// a task-only session takes the camera; retain lastGrid so Retry AR can still reload the map.
+    func prepareForManualTask() {
+        if !tracking.isRunning { cancelInFlight() }
+    }
 
     /// How long the last good tile keeps being reported after tracking drops, while ARKit finds its place again.
     static let holdLastTileSeconds: TimeInterval = 10
@@ -161,5 +171,36 @@ final class ARPositionProvider: PositionProvider {
         }
         if let captureError = error as? ARCaptureError, case let .invalid(text) = captureError { return text }
         return error.localizedDescription
+    }
+}
+
+
+/// A task-only coordinate frame for manual movement. Never reports tiles, downloads a map,
+/// or replaces the game's AR provider. One retained view owns this session until the sheet closes.
+@Observable
+final class TaskARPreview {
+    private let tracking = ARTrackingSession()
+    private var generation = 0
+
+    var arView: ARView? { tracking.isRunning ? tracking.arView : nil }
+    var isTracking: Bool { tracking.isRunning && !tracking.isInterrupted && tracking.quality.isReliable }
+
+    func start() async {
+        guard ARTrackingSession.isSupported, !tracking.isRunning else { return }
+        generation += 1
+        let attempt = generation
+        let allowed: Bool
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: allowed = true
+        case .notDetermined: allowed = await AVCaptureDevice.requestAccess(for: .video)
+        default: allowed = false
+        }
+        guard allowed, !Task.isCancelled, attempt == generation else { return }
+        tracking.start()
+    }
+
+    func stop() {
+        generation += 1
+        if tracking.isRunning { tracking.pause() }
     }
 }
