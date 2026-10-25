@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The sheet a crew member does a task in. It picks the Core Motion task for the station's
+/// The full-screen view a crew member does a task in, over the live camera when it is available. It picks the Core Motion task for the station's
 /// `task` kind, runs a 15 s clock, and calls `onFinish` once on success. An idle phone runs out
 /// the clock and fails. `onFinish` is what reports `taskDone`, so it is never called on failure.
 struct MotionTaskSheet: View {
@@ -9,6 +9,7 @@ struct MotionTaskSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var sensor = MotionSensor()
+    @State private var camera = CameraFeed()
     @State private var attempt = 0
     @State private var progress = 0.0
     @State private var outcome = Outcome.running
@@ -29,17 +30,38 @@ struct MotionTaskSheet: View {
             footer
         }
         .padding(24)
+        .gameColumn()
         .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.large])
-        .presentationBackground { GameBackdrop() }
+        .background { backdrop.ignoresSafeArea() }
         .preferredColorScheme(.dark)
+        .task { await camera.start() }
         .task(id: attempt) { await runClock() }
-        .onDisappear { sensor.stop() }
+        .onDisappear {
+            sensor.stop()
+            camera.stop()
+        }
         .sensoryFeedback(.success, trigger: outcome) { _, new in new == .success }
         .sensoryFeedback(.error, trigger: outcome) { _, new in new == .timedOut }
     }
 
     // MARK: Pieces
+
+    /// The room through the camera under a dark scrim so the text stays readable, or the plain
+    /// backdrop when the camera is not available.
+    @ViewBuilder private var backdrop: some View {
+        if camera.status == .running {
+            ZStack {
+                CameraBackdrop(session: camera.session)
+                LinearGradient(
+                    colors: [.black.opacity(0.7), .black.opacity(0.25), .black.opacity(0.7)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        } else {
+            GameBackdrop()
+        }
+    }
 
     private var header: some View {
         VStack(spacing: 10) {
