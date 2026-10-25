@@ -91,7 +91,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 | t | fields |
 |---|---|
 | `joined` | playerId, room |
-| `lobby` | players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool |
+| `lobby` | hostId: String, players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool |
 | `processing` | step: "polygon"\|"gemini"\|"placing" |
 | `setup` | grid, stations, setupConfirmed: Bool (draft until confirmed) |
 | `role` | role (private) |
@@ -132,5 +132,8 @@ The icon positions come straight from `Station.tile` and `Grid`; the app only co
 
 ## Failure handling
 - Disconnect: server keeps the player; reconnect with `playerId` restores state.
+- The creator's ID is `lobby.hostId`, including after reconnect; clients must use it for host UI rather than relying on player ordering. The host is not reassigned on disconnect.
+- The newest successful reconnect replaces the old socket, which is closed with code `4000` and reason `Reconnected elsewhere`. The displaced client must stop automatic reconnect and require an explicit user Connect action; otherwise two clients sharing one identity can repeatedly replace each other. Normal network drops still use reconnect with the same room/name/playerId. Rejected reconnects do not replace the active socket.
+- Keepalive uses WebSocket protocol ping/pong (not JSON). The server automatically answers pings, even before a client joins. Protocol errors use `{t:"error",code,message}` and normally leave the socket open; see `server/ERROR_CODES.md`.
 - Relocalization failure: manual tile picker.
 - Server restarts lose state (accepted for the hackathon).

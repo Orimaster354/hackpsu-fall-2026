@@ -6,7 +6,7 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 Latest main's UI and D networking/models are preserved alongside the backend. Backend acceptance is verified by 42 automated tests plus four-client lobby and complete-round simulations. B's checked UI items below are carried forward from main and have source implementations; this Windows audit does not claim a Mac build or device acceptance. Unchecked end-to-end criteria remain open. The normal app mounts `RootView()`, whose default initializer uses `MockServer`; it does not yet exercise the real backend.
 
 ## Next acceptance priorities
-1. **D — connect the UI to the backend:** wire a retained `GameClient` into `GameSession.send` / `receive` and pass that session to `RootView` instead of its default mock. Make `LobbySnapshot.grid` nullable, retain server `setupConfirmed` in lobby/setup models, and map ready/connected and setup confirmation to UI state. Verify lobby receive and reconnect against the running server. See `server/CLIENT_INTEGRATION.md`.
+1. **D — connect the UI to the backend:** wire a retained `GameClient` into `GameSession.send` / `receive` and pass that session to `RootView` instead of its default mock. Make `LobbySnapshot.grid` nullable, decode `lobby.hostId`, retain server `setupConfirmed` in lobby/setup models, and map ready/connected and setup confirmation to UI state. Stop automatic reconnect on replacement close code 4000. Verify lobby receive and reconnect against the running server. See `server/CLIENT_INTEGRATION.md` and the rewritten current `docs/integration.md`.
 2. **B + D — play a complete manual-tile round on simulators/phones:** verify lobby/readiness, private role reveal, tile actions, task/kill/meeting/vote/end screens, and the ghost instructions. Server-side tests and bot round already pass; client integration is the remaining acceptance.
 3. **B — finish and test task/sabotage UI on device:** confirm each motion task succeeds/fails as specified and lights-out blocks tasks until a crew member uses the fix station. Server rules are implemented and tested.
 4. **A + C + D — establish scan-to-grid with a shared fixture before real-room AR:** capture/upload both passes, validate polygon/grid and emergency tile, then test host review and manual fallback. Gemini station placement and AR icons follow this foundation.
@@ -15,6 +15,7 @@ Latest main's UI and D networking/models are preserved alongside the backend. Ba
 - [ ] D: `MyApp/Models/` Codable types matching `docs/architecture.md`. AC: compiles; sample JSON round-trips.
 - [ ] D: `MyApp/Net/GameClient.swift` (connect, send, receive, reconnect with playerId). AC: connects to the server and prints `lobby`.
 - [x] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room. Verified with `npm test` and `npm run smoke`; four clients receive the shared lobby and readiness state.
+- [x] C: integration contract audit, approved `lobby.hostId`, and client error/close-code reference (`server/ERROR_CODES.md`). All 45 backend tests pass, including explicit host identity, protocol ping/pong, replacement close code 4000, stale-close protection and rejected reconnects. Existing scan/setup decisions are consolidated in `docs/integration.md`; D's client retry fix remains pending.
 
 ## Phase 1: Manual-tile game, end to end (no AR)
 - [x] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md. Verified by the game-rule and WebSocket tests.
@@ -62,10 +63,10 @@ Latest main's UI and D networking/models are preserved alongside the backend. Ba
 
 ## Open contract questions (from B)
 The source comments in `MyApp/UI/Session/SessionModels.swift` describe the older UI assumptions. Use the approved architecture and the status below; proposed new fields are not automatically approved or implemented.
-- `lobby` has no host id. The UI treats `players[0]` as the host. Suggest `hostId`.
+- Resolved on the server: user approved `lobby.hostId`; it is now implemented and stable across reconnect. D/B must decode it and use it for host controls instead of player order.
 - Resolved on the server: `setupConfirmed` is already approved and sent in `lobby` and `setup`. D must decode it and B's UI must use that acknowledgement rather than assuming local confirmation succeeded.
 - `state` has no server time, so cooldown and meeting countdowns compare `endsAt` with the phone clock. Suggest `now` (epoch ms) on `state`.
 - `GameState` has no per-player task completion or emergency usage, so the UI tracks both on the phone.
 - `result` does not name the impostor when the game ends by kills or tasks, so the end screen cannot reveal them. Suggest `impostorId` on the final `result`.
-- `ready` already exists in the server contract and D's `ClientMessage`; B's UI intent/state adapter still needs to expose it and connection status. `leave` is not implemented; disconnect retains the player's seat for reconnect. Error-code reference documentation remains incomplete.
+- `ready` already exists in the server contract and D's `ClientMessage`; B's UI intent/state adapter still needs to expose it and connection status. `leave` is not implemented; disconnect retains the player's seat for reconnect. The current error-code and connection-close reference is `server/ERROR_CODES.md`.
 - For A: tile reporting is centralized. Conform one class to `PositionProvider` (`MyApp/UI/Position/PositionProvider.swift`: publish `tile` and `status`) and pass it to `RootView` as `PositionCoordinator(ar:)`. The coordinator sends `tile { tile, source }` at 2 Hz, so the AR module does not need to send it. `MapGrid.tile(atX:z:)` and `worldCenter(of:)` do the tile math, and `StationIcon(style: .world)` renders the AR icons through `ImageRenderer`.

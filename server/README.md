@@ -36,7 +36,7 @@ The server listens on `0.0.0.0:8080`. `PORT` overrides the port; `WS_URL` overri
 
 Client events: `create`, `join`, `ready`, `editStation`, `confirmSetup`, `start`, `tile`, `taskDone`, `kill`, `report`, `emergency`, `vote`, `sabotage`, `fix`.
 
-Server events: `joined`, `lobby`, `setup`, private `role` and `killed`, public `state`, `meeting`, `result`, and recoverable `error`. Follow [architecture.md](../docs/architecture.md) and [the client handoff](CLIENT_INTEGRATION.md) for exact JSON and nullable fields. Public players never contain roles. `state`/`meeting` fields sit beside `t`.
+Server events: `joined`, `lobby`, `setup`, private `role` and `killed`, public `state`, `meeting`, `result`, and recoverable `error`. Lobby includes the approved `hostId`; clients compare it with their player ID instead of inferring host from ordering. Follow [architecture.md](../docs/architecture.md) and [the client handoff](CLIENT_INTEGRATION.md) for exact JSON and nullable fields. Public players never contain roles. `state`/`meeting` fields sit beside `t`. See [error codes and replacement handling](ERROR_CODES.md) for recoverable actions and terminal replacement close code 4000.
 
 Four-letter codes hold four players. Disconnect retains membership, sets `connected=false` and clears ready. Reconnect sends `join` with the same room, name and playerId, restoring setup and authoritative state plus only that player's role. Ready is advisory; start requires the host, four connected players and confirmed setup.
 
