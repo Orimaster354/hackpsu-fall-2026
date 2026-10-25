@@ -28,7 +28,8 @@ test('MOV selection enables Analyze even when the browser cannot preview the cod
   };
   assert.equal(element('start').disabled, true);
   select('overview', 'overview.MOV');
-  assert.equal(element('start').disabled, true);
+  assert.equal(element('start').disabled, false);
+  assert.match(element('start-reason').textContent, /second video.*optional/);
   select('edge', 'edge.mov');
   assert.equal(element('start').disabled, false);
   for (const pass of ['overview', 'edge']) element(`${pass}-video`).listeners.error();
@@ -44,4 +45,6 @@ test('MOV selection enables Analyze even when the browser cannot preview the cod
   select('edge', 'wrong.txt');
   assert.equal(element('start').disabled, true);
   assert.match(element('edge-info').textContent, /MP4 or MOV/);
+  element('edge').files = []; element('edge').listeners.change();
+  assert.equal(element('start').disabled, false);
 });

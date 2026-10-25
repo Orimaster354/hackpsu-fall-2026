@@ -14,7 +14,7 @@ function validBox(box) {
 }
 
 function validateYoloResult(result, videos) {
-  requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === 2,
+  requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === videos.length,
     'YOLOE_INVALID_RESPONSE', 'YOLOE returned an invalid result.');
   const seen = new Set();
   const passes = result.passes.map((pass) => {
