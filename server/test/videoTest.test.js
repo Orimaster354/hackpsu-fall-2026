@@ -118,7 +118,7 @@ function form() {
 test('local dashboard accepts two MP4 uploads, streams progress and rejects invalid/missing inputs', async (t) => {
   let calls = 0;
   const app = createAppServer({ videoDetector: { configured: true, model: 'test-model', async detect(input, { notify }) {
-    calls += 1; assert.deepEqual(input, videos); notify('Analyzing test clips'); return { passes: [] };
+    calls += 1; assert.deepEqual(input, videos.slice(0, input.length)); notify('Analyzing test clips'); return { passes: [] };
   } } });
   const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
@@ -131,11 +131,22 @@ test('local dashboard accepts two MP4 uploads, streams progress and rejects inva
   const events = (await response.text()).trim().split('\n').map((line) => JSON.parse(line));
   assert.ok(events.some((event) => event.message === 'Analyzing test clips'));
   assert.equal(events.at(-1).type, 'result'); assert.equal(calls, 1);
-  const missing = form(); missing.delete('edge');
+  const single = form(); single.delete('edge');
+  const one = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: single });
+  assert.equal(one.status, 200); assert.equal((await one.text()).trim().split('\n').map(JSON.parse).at(-1).type, 'result');
+  const missing = form(); missing.delete('overview');
   assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: missing })).status, 400);
   const bad = form(); bad.set('edge', new Blob(['not really an mp4 video'], { type: 'video/mp4' }), 'bad.mp4');
   assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: bad })).status, 400);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
+});
+
+test('Gemini comparison accepts one video and returns only its pass', async () => {
+  const fake = provider();
+  const result = await createVideoDetector({ apiKey: 'test-key', fetchImpl: fake.fetchImpl, pollMs: 0 }).detect(videos.slice(0, 1));
+  assert.equal(result.passes.length, 1); assert.equal(result.passes[0].pass, 'overview');
+  assert.equal(result.analysis.inferenceRequests, 1);
+  assert.equal(fake.calls.filter((call) => call.url.includes(':generateContent')).length, 1);
 });
 
 test('MOV uploads need no browser-provided duration and the server enforces 120 seconds', async (t) => {

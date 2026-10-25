@@ -209,8 +209,9 @@ def main():
         emit({"type": "ready", "model": MODEL, "classes": CLASSES})
         return
     job = json.load(sys.stdin)
-    if not isinstance(job.get("videos"), list) or len(job["videos"]) != 2:
-        raise ValueError("Expected overview and edge videos.")
+    videos = job.get("videos")
+    if not isinstance(videos, list) or len(videos) not in (1, 2) or [item.get("pass") for item in videos] not in (["overview"], ["overview", "edge"]):
+        raise ValueError("Expected an overview video and an optional edge video.")
     started = time.monotonic()
     passes = [analyze_video(model, spec) for spec in job["videos"]]
     emit({"type": "result", "model": MODEL, "elapsedMs": round((time.monotonic() - started) * 1000),

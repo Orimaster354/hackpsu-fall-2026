@@ -17,7 +17,7 @@ function selectDetector() {
     : `Model: ${selected.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${selected.quality ? ` · High detail, ${selected.quality.fps} FPS · Videos analyzed separately` : ''}`;
   $('upload-notice').textContent = engine() === 'yoloe'
     ? 'YOLOE processes videos locally. If station reasoning is checked, only detection labels/scores/boxes/IDs go to Gemini; no videos or frame images are sent. Temporary local copies are removed after the run.'
-    : 'Gemini mode sends both complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
+    : 'Gemini mode sends selected complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
   $('reasoning').disabled = !detectorConfig.reasoning?.configured || Boolean(controller);
   $('reasoning-status').textContent = detectorConfig.reasoning?.configured
     ? `Reasoning model: ${detectorConfig.reasoning.model}. Suggestions still require physical placement and review.`
@@ -32,16 +32,18 @@ function log(message) {
   $('events').prepend(li);
 }
 function controls() {
-  $('start').disabled = !configured || Boolean(controller) || !passes.every((pass) => clips[pass]?.ready);
+  const selected = passes.filter((pass) => clips[pass]?.file);
+  $('start').disabled = !configured || Boolean(controller) || !clips.overview?.ready || selected.some((pass) => !clips[pass].ready);
   $('cancel').disabled = !controller;
   for (const pass of passes) $(pass).disabled = Boolean(controller);
   $('detector').disabled = Boolean(controller);
   $('reasoning').disabled = !detectorConfig?.reasoning?.configured || Boolean(controller);
-  const waiting = passes.filter((pass) => !clips[pass]?.ready);
+  $('edge-clear').disabled = Boolean(controller) || !clips.edge?.file;
+  const waiting = ['overview', ...selected.filter((pass) => pass !== 'overview')].filter((pass) => !clips[pass]?.ready);
   $('start-reason').textContent = controller ? 'Analysis is running. Progress appears below.'
     : !configured ? 'The selected detector is not configured. See the model status above.'
       : waiting.length ? `Choose a valid ${waiting.join(' and ')} video to enable analysis. Check the message below each picker.`
-        : 'Both files selected. Ready to analyze; browser preview is optional.';
+        : `${selected.length} video(s) selected. Ready to analyze; a second video and browser preview are optional.`;
 }
 function draw(pass) {
   const canvas = $(`${pass}-box`); const video = $(`${pass}-video`);
@@ -157,19 +159,19 @@ $('test-form').addEventListener('submit', async (event) => {
   if ($('start').disabled) return;
   controller = new AbortController(); result = null; $('download').disabled = true; controls();
   for (const pass of passes) $(`${pass}-stats`).textContent = '';
-  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; clips[pass].selected = null; draw(pass); }
+  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; if (clips[pass]) clips[pass].selected = null; draw(pass); }
   $('events').replaceChildren(); $('error').hidden = true; $('status').textContent = 'ANALYZING';
   $('planning').hidden = true;
-  $('summary').textContent = 'Uploading both videos…';
+  $('summary').textContent = 'Uploading selected videos…';
   const started = Date.now();
   timer = setInterval(() => { $('elapsed').textContent = `${Math.floor((Date.now() - started) / 1000)}s elapsed`; }, 1000);
-  log(`Sending both video files to the backend for ${engine() === 'yoloe' ? 'local YOLOE' : 'Gemini'} analysis.`);
+  log(`Sending selected video files to the backend for ${engine() === 'yoloe' ? 'local YOLOE' : 'Gemini'} analysis.`);
   let gotResult = false;
   try {
     const form = new FormData();
     form.append('detector', engine());
     form.append('reasoning', $('reasoning').checked && detectorConfig.reasoning?.configured ? '1' : '0');
-    for (const pass of passes) form.append(pass, clips[pass].file);
+    for (const pass of passes) if (clips[pass]?.file) form.append(pass, clips[pass].file);
     const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
     const consume = (line) => {
@@ -195,6 +197,7 @@ $('test-form').addEventListener('submit', async (event) => {
   } finally { clearInterval(timer); controller = null; controls(); }
 });
 $('cancel').addEventListener('click', () => controller?.abort());
+$('edge-clear').addEventListener('click', () => { $('edge').value = ''; $('edge').dispatchEvent(new Event('change')); });
 $('detector').addEventListener('change', () => { result = null; $('download').disabled = true; selectDetector(); });
 $('download').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));

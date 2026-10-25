@@ -25,6 +25,13 @@ test('YOLOE adapter validates decoded-frame timestamps, class scores and normali
   assert.throws(() => validateYoloResult(duplicate, videos), { code: 'YOLOE_INVALID_RESPONSE' });
 });
 
+test('YOLOE validation accepts one overview and rejects fabricated extra or missing passes', () => {
+  const single = result(); single.passes = single.passes.slice(0, 1);
+  assert.equal(validateYoloResult(single, videos.slice(0, 1)).passes.length, 1);
+  assert.throws(() => validateYoloResult(result(), videos.slice(0, 1)), { code: 'YOLOE_INVALID_RESPONSE' });
+  assert.throws(() => validateYoloResult(single, videos), { code: 'YOLOE_INVALID_RESPONSE' });
+});
+
 function fakeProcess({ hold = false, broken = false } = {}) {
   let specs; let started;
   const entered = new Promise((resolve) => { started = resolve; });
