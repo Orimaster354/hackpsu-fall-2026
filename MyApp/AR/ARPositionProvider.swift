@@ -1,3 +1,4 @@
+import ARKit
 import Foundation
 import Observation
 
@@ -21,6 +22,9 @@ final class ARPositionProvider: PositionProvider {
     init(client: GameClient) {
         self.client = client
     }
+
+    /// The one ARSession, for views that draw on it (the task screen's 3D prop). Never run or pause it from there.
+    var arSession: ARSession { tracking.session }
 
     /// The tile under the phone, or nil while relocalizing, when tracking is degraded, or outside the room.
     var tile: MapTile? {

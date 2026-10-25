@@ -11,6 +11,7 @@ struct TaskReport {
 struct TaskContext {
     let sensor: MotionSensor
     let report: TaskReport
+    let telemetry: TaskTelemetry
 }
 
 private struct DriveModel<Model: MotionTaskModel>: ViewModifier {
@@ -79,7 +80,7 @@ struct ShakeTaskView: View {
                     .monospacedDigit()
             }
         }
-        .drive($model, context)
+        .drive($model, context) { _ in context.telemetry.joltCount = model.count }
         .onAppear { wobble = true }
         .sensoryFeedback(.impact(weight: .light), trigger: model.count)
         .accessibilityElement(children: .ignore)
@@ -109,7 +110,11 @@ struct BalanceTaskView: View {
                     .offset(x: model.x * (arena - ball) / 2, y: model.y * (arena - ball) / 2)
             }
         }
-        .drive($model, context)
+        .drive($model, context) { _ in
+            context.telemetry.ballX = model.x
+            context.telemetry.ballY = model.y
+            context.telemetry.good = model.inZone
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tilt the phone to keep the ball in the ring")
         .accessibilityValue(model.inZone ? "In the ring" : "Outside the ring")
@@ -142,7 +147,10 @@ struct DialTaskView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.Palette.textSecondary)
         }
-        .drive($model, context)
+        .drive($model, context) { _ in
+            context.telemetry.dialAngle = model.angle ?? 0
+            context.telemetry.good = model.dwellTime > 0
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Turn the phone to line up the needle with each marker")
         .accessibilityValue("\(model.index) of \(model.targets.count) markers")
@@ -196,6 +204,7 @@ struct SteadyTaskView: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
         }
         .drive($model, context) { sample in
+            context.telemetry.good = model.upright && model.steady
             // The dot shows the shake: it jumps with rotation and acceleration, and rests when still.
             let amount = min(1, (sample.rotationRate / 2 + sample.userAcceleration) / 1.0)
             wobble = CGSize(width: .random(in: -1 ... 1) * amount * 80, height: .random(in: -1 ... 1) * amount * 80)
@@ -236,7 +245,11 @@ struct PatternTaskView: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .drive($model, context)
+        .drive($model, context) { sample in
+            // The ball on the prop's tray rolls the way the phone is tilted.
+            context.telemetry.ballX = max(-1, min(1, sample.gravityX * 2))
+            context.telemetry.ballY = max(-1, min(1, -sample.gravityY * 2))
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: model.index)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tilt the phone in the pattern shown")

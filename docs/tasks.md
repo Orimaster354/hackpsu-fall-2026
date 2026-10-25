@@ -81,3 +81,7 @@ The source comments in `MyApp/UI/Session/SessionModels.swift` describe the older
 - D: `docs/ar-capture.md` says `ScanClient.uploadMap`; the code has `GameClient.uploadMap`, which the app uses. `ScanClient` encodes the sweep JSON on the main actor, so the screen may freeze for a moment during upload; consider a nonisolated encode.
 - B: the lobby `SetupCard` text still describes the old two-video scan ("Walk the room twice", "Spotting objects in the videos").
 - All: `Info.plist` now also has `NSLocalNetworkUsageDescription` and `NSAppTransportSecurity > NSAllowsLocalNetworking` for the LAN server. If a phone cannot reach the server, `NSAllowsArbitraryLoads` (as `docs/integration.md` says) is the fallback.
+
+## Task screen in AR (owner B, 2026-10-25)
+- B: `MotionTaskSheet` draws each task as a 3D station prop on the AR module's `ARSession` when the phone is tracking in the room (`MyApp/Tasks/TaskARBackdrop.swift`). The prop is placed once in front of the player and mirrors task progress; the 2D controls stay on top. Without AR tracking (manual mode, simulator) it uses a plain camera feed, then the dark backdrop. Built, **not yet device-verified**; placement distances need tuning on a phone.
+- A: one additive line in your file, `ARPositionProvider.arSession`, exposes the session. The task screen never runs, pauses or configures it, and it hands `session.delegate` back after attaching its `ARView` (same as `ARCameraView`). Please keep the session running while the task screen is open, and tell me if you would rather pass the session another way.
