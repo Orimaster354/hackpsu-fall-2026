@@ -32,7 +32,7 @@ struct GameView: View {
         } bar: {
             if session.isAlive { actions }
         }
-        .sheet(item: $taskStation) { station in
+        .fullScreenCover(item: $taskStation) { station in
             MotionTaskSheet(station: station) { session.completeTask(at: station) }
         }
         .sheet(isPresented: $showPosition) { PositionSheet() }

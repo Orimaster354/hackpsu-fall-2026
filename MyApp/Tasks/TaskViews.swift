@@ -51,6 +51,7 @@ private struct Arena<Content: View>: View {
     var body: some View {
         content
             .frame(width: 240, height: 240)
+            .background(.black.opacity(0.4), in: Circle())
             .background(Theme.Palette.surface, in: Circle())
             .overlay {
                 Circle().strokeBorder(highlighted ? Theme.Palette.success : Theme.Palette.surfaceStroke, lineWidth: highlighted ? 3 : 1)
