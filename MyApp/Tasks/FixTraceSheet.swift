@@ -8,6 +8,7 @@ struct FixTraceSheet: View {
     let onFix: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.gameAudio) private var audio
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(PositionCoordinator.self) private var position
@@ -349,8 +350,10 @@ struct FixTraceSheet: View {
         deadline = .now.addingTimeInterval(Self.timeLimit)
         do { try await Task.sleep(for: .seconds(Self.timeLimit)) } catch { return }
         guard outcome == .running else { return }
+        guard canAttempt else { cancelAttempt(); return }
         controller.cancelStroke()
         outcome = .timedOut
+        audio?.play(.taskFailed)
     }
 
     /// Also used by VoiceOver. A match can wait for the tile, but can never send a fix from elsewhere.
@@ -363,6 +366,7 @@ struct FixTraceSheet: View {
     private func finish() {
         guard canAttempt, canFinish, outcome == .running || outcome == .awaitingTile else { return }
         outcome = .success
+        audio?.play(.taskComplete)
         flashes += 1
         onFix()
     }

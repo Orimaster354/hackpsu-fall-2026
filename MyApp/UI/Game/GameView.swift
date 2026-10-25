@@ -6,6 +6,7 @@ import SwiftUI
 struct GameView: View {
     @Environment(GameSession.self) private var session
     @Environment(PositionCoordinator.self) private var position
+    @Environment(\.gameAudio) private var audio
     @AppStorage(SettingsKey.showEveryone) private var showEveryone = false
     @State private var taskStation: MapStation?
     @State private var taskCameraInUse = false
@@ -299,7 +300,11 @@ struct GameView: View {
                 .buttonStyle(.game(.primary))
                 .accessibilityIdentifier("restorePowerButton")
             } else {
-                HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) { session.fix(fix) }
+                HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) {
+                    guard session.canFixHere else { return }
+                    audio?.play(.taskComplete)
+                    session.fix(fix)
+                }
                     .accessibilityIdentifier("fixButton")
                 #if targetEnvironment(simulator)
                 Button("Simulator: draw to restore power") { openFixTrace() }
