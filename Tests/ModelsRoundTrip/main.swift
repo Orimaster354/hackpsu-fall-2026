@@ -1,0 +1,133 @@
+import Foundation
+
+// JSON round-trip checks for MyApp/Models. Not part of the Xcode project (no test target yet).
+// Run from the repo root on a Mac:
+//
+//   swiftc MyApp/Models/*.swift Tests/ModelsRoundTrip/main.swift -o /tmp/models-roundtrip \
+//     && /tmp/models-roundtrip
+//
+// Exits non-zero on the first failure. Server samples mirror what server/game.js and server/rooms.js emit.
+
+var failures = 0
+
+func check(_ condition: @autoclosure () -> Bool, _ name: String, line: Int = #line) {
+    if condition() { print("ok   \(name)") } else { print("FAIL \(name) (line \(line))"); failures += 1 }
+}
+
+/// Keys are sorted by `WireCodec.encode`, so expected strings list keys alphabetically.
+func wire(_ message: ClientMessage) -> String {
+    try! WireCodec.encode(message)
+}
+
+// MARK: Codable models round-trip
+
+func roundTrip<T: Codable & Equatable>(_ value: T, _ name: String) {
+    do {
+        let data = try JSONEncoder().encode(value)
+        let back = try JSONDecoder().decode(T.self, from: data)
+        check(back == value, "round-trip \(name)")
+    } catch {
+        print("FAIL round-trip \(name): \(error)"); failures += 1
+    }
+}
+
+let tile = Tile(x: 2, y: 3)
+let player = Player(id: "p1", name: "Ada", tile: tile, alive: true, tileSource: .manual, ready: true, connected: true)
+let meeting = MeetingState(reason: .report, bodyOf: "p2", endsAt: 1_700_000_030_000, votes: ["p1": "p3", "p4": "skip"])
+roundTrip(tile, "Tile")
+roundTrip(Grid(cols: 5, rows: 5, blocked: [Tile(x: 1, y: 1)]), "Grid (server shape)")
+roundTrip(Grid(cols: 5, rows: 5, originX: -0.5, originZ: -0.5, playable: [tile], edge: [tile]), "Grid (scan shape)")
+roundTrip(Station(id: "s1", name: "Sink", tile: tile, task: .shake, kind: .task), "Station")
+roundTrip(player, "Player")
+roundTrip(meeting, "MeetingState")
+roundTrip(GameState(phase: .meeting, players: [player], tasksDone: 1, tasksTotal: 4, lightsOut: false,
+                    killCooldownEndsAt: 1_700_000_000_000, meeting: meeting), "GameState")
+
+// A Grid from an older server has no origin/playable/edge, and may omit `blocked`.
+let legacyGrid = try! JSONDecoder().decode(Grid.self, from: Data(#"{"cols":5,"rows":5,"tileSize":1}"#.utf8))
+check(legacyGrid.blocked.isEmpty && legacyGrid.edge == nil, "Grid decodes without optional fields")
+
+// MARK: Server messages (decode samples as the server sends them)
+
+func decode(_ text: String) -> ServerMessage? { try? WireCodec.decode(text) }
+
+let playersJSON = #"[{"id":"p1","name":"Ada","tile":null,"alive":true,"tileSource":"manual","ready":false,"connected":true}]"#
+let gridJSON = #"{"cols":5,"rows":5,"tileSize":1,"blocked":[]}"#
+
+check(decode(#"{"t":"joined","playerId":"p1","room":"ABCD"}"#) == .joined(playerId: "p1", room: "ABCD"), "joined")
+
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":\#(gridJSON),"stations":[],"hasMap":false}"#) {
+    check(snapshot.players.count == 1 && snapshot.players[0].tile == nil && !snapshot.hasMap, "lobby")
+} else { print("FAIL lobby"); failures += 1 }
+
+check(decode(#"{"t":"role","role":"impostor"}"#) == .role(.impostor), "role")
+check(decode(#"{"t":"role"}"#) == .role(nil), "role without value (reconnect)")
+check(decode(#"{"t":"killed"}"#) == .killed, "killed")
+
+if case let .state(state)? = decode(#"{"t":"state","phase":"playing","players":\#(playersJSON),"tasksDone":0,"tasksTotal":8,"lightsOut":false,"killCooldownEndsAt":1700000025000,"meeting":null}"#) {
+    check(state.phase == .playing && state.tasksTotal == 8 && state.meeting == nil && state.killCooldownEndsAt == 1_700_000_025_000, "state (flat fields, null meeting)")
+} else { print("FAIL state"); failures += 1 }
+
+if case let .state(state)? = decode(#"{"t":"state","phase":"meeting","players":[],"tasksDone":0,"tasksTotal":0,"lightsOut":true,"killCooldownEndsAt":null,"meeting":{"reason":"emergency","bodyOf":null,"endsAt":1700000030000,"votes":{"p1":"skip"}}}"#) {
+    check(state.meeting?.reason == .emergency && state.meeting?.votes["p1"] == "skip" && state.killCooldownEndsAt == nil, "state with nested meeting")
+} else { print("FAIL state with meeting"); failures += 1 }
+
+check(decode(#"{"t":"meeting","reason":"report","bodyOf":"p2","endsAt":1700000030000,"votes":{}}"#)
+      == .meeting(MeetingState(reason: .report, bodyOf: "p2", endsAt: 1_700_000_030_000, votes: [:])), "meeting (flat)")
+check(decode(#"{"t":"result","ejected":"p3","role":"impostor","winner":"crew"}"#)
+      == .result(GameResult(ejected: "p3", role: .impostor, winner: .crew)), "result with ejection")
+check(decode(#"{"t":"result","ejected":null,"role":null,"winner":null}"#)
+      == .result(GameResult(ejected: nil, role: nil, winner: nil)), "result with no ejection")
+check(decode(#"{"t":"error","code":"ROOM_FULL","message":"This room already has four players."}"#)
+      == .error(code: "ROOM_FULL", message: "This room already has four players."), "error")
+check(decode(#"{"t":"suggestions","objects":[{"label":"sink","box":[0.1,0.2,0.3,0.4]}]}"#)
+      == .suggestions(objects: [DetectedObject(label: "sink", box: [0.1, 0.2, 0.3, 0.4])]), "suggestions")
+check(decode(#"{"t":"scan_status","state":"ready","maxFps":1,"maxFrameBytes":262144,"maxDurationMs":90000}"#)
+      == .scanStatus(ScanStatus(state: .ready, reason: nil, maxFps: 1, maxFrameBytes: 262_144, maxDurationMs: 90_000)), "scan_status ready")
+check(decode(#"{"t":"scan_status","state":"stopped","reason":"duration_limit"}"#)
+      == .scanStatus(ScanStatus(state: .stopped, reason: "duration_limit", maxFps: nil, maxFrameBytes: nil, maxDurationMs: nil)), "scan_status stopped")
+check(decode(#"{"t":"scan_detections","frameId":"f1","timestampMs":1200,"objects":[]}"#)
+      == .scanDetections(frameId: "f1", timestampMs: 1200, objects: []), "scan_detections")
+check(decode(#"{"t":"processing","step":"gemini"}"#) == .processing(step: "gemini"), "processing")
+check(decode(#"{"t":"future_message","x":1}"#) == .unknown(type: "future_message"), "unknown type is tolerated")
+check(decode("not json") == nil, "malformed frame fails to decode")
+check(decode(#"{"t":"joined"}"#) == nil, "missing field fails to decode")
+
+// MARK: Client messages (encode to the documented JSON)
+
+check(wire(.create(name: "Ada")) == #"{"name":"Ada","t":"create"}"#, "create")
+check(wire(.join(room: "ABCD", name: "Bo")) == #"{"name":"Bo","room":"ABCD","t":"join"}"#, "join (no playerId key)")
+check(wire(.join(room: "ABCD", name: "Bo", playerId: "p2")) == #"{"name":"Bo","playerId":"p2","room":"ABCD","t":"join"}"#, "join reconnect")
+check(wire(.ready(true)) == #"{"ready":true,"t":"ready"}"#, "ready")
+check(wire(.start) == #"{"t":"start"}"#, "start")
+check(wire(.tile(Tile(x: 1, y: 2), source: .ar)) == #"{"source":"ar","t":"tile","tile":{"x":1,"y":2}}"#, "tile")
+check(wire(.taskDone(stationId: "s1")) == #"{"stationId":"s1","t":"taskDone"}"#, "taskDone")
+check(wire(.kill(targetId: "p3")) == #"{"t":"kill","targetId":"p3"}"#, "kill")
+check(wire(.report(bodyId: "p3")) == #"{"bodyId":"p3","t":"report"}"#, "report")
+check(wire(.emergency) == #"{"t":"emergency"}"#, "emergency")
+check(wire(.vote(target: MeetingState.skip)) == #"{"t":"vote","target":"skip"}"#, "vote skip")
+check(wire(.sabotage) == #"{"t":"sabotage"}"#, "sabotage")
+check(wire(.fix(stationId: "s9")) == #"{"stationId":"s9","t":"fix"}"#, "fix")
+check(wire(.scanStart) == #"{"t":"scan_start"}"#, "scan_start")
+check(wire(.scanStop) == #"{"t":"scan_stop"}"#, "scan_stop")
+check(wire(.scanFrame(frameId: "f1", timestampMs: 0, jpeg: "AAAA")) == #"{"frameId":"f1","jpeg":"AAAA","t":"scan_frame","timestampMs":0}"#, "scan_frame")
+check(wire(.suggest(photos: ["AAAA"])) == #"{"photos":["AAAA"],"t":"suggest"}"#, "suggest")
+check(wire(.setRoom(grid: Grid(cols: 5, rows: 5), stations: [])) ==
+      #"{"grid":{"blocked":[],"cols":5,"rows":5,"tileSize":1},"stations":[],"t":"setRoom"}"#, "setRoom")
+
+// MARK: Shared fixture
+
+let fixtureURL = URL(fileURLWithPath: "docs/fixtures/setup.json")
+if let data = try? Data(contentsOf: fixtureURL) {
+    if case let .setup(grid, stations)? = try? WireCodec.decode(data) {
+        let edge = Set(grid.edge ?? [])
+        check(grid.cols == 5 && grid.rows == 5 && edge.count == 16, "fixture setup.json grid")
+        check(stations.filter { $0.kind == .task }.allSatisfy { edge.contains($0.tile) }, "fixture task stations are on edge tiles")
+        check(stations.contains { $0.kind == .emergency }, "fixture has an emergency station")
+    } else { print("FAIL fixture setup.json does not decode as setup"); failures += 1 }
+} else {
+    print("skip fixture checks (run from the repo root)")
+}
+
+print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
+exit(failures == 0 ? 0 : 1)
