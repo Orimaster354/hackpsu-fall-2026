@@ -68,6 +68,28 @@ The ignored `.env` supplies `GEMINI_API_KEY`. Optional `GEMINI_VIDEO_MODEL` over
 
 Developer-only `GET /api/dashboard/video-test` exposes non-secret configuration; `POST` accepts multipart `overview` and `edge` video files with `X-Roomshift-Video-Test: 1`, and streams NDJSON progress/result/error records. Loopback only, one run at a time, five-minute processing deadline; Cancel aborts active work. Input is bounded in memory and not saved locally. Provider files are deleted after each attempt when possible; cleanup failures are reported on successful results. Provider retention applies if cleanup fails. No gameplay rooms or shared iOS endpoints are changed. Actual two-video acceptance remains pending a successful run with the user's clips.
 
+## Optional local YOLOE-26 Small test
+
+The video dashboard also offers **YOLOE-26 Small · local CPU**, using `yoloe-26s-seg.pt` with text prompts. It samples decoded MP4/MOV frames at 1 FPS, predicts at 640 px, filters scores below 0.35 and very small/whole-frame boxes, and returns up to eight candidates per pass. Prompts: door, desk, sofa, chair, bookshelf, cabinet, table, television, refrigerator and sink. Decoder presentation timestamps are used, with an explicitly reported frame-index/FPS fallback. Short image-space overlap tracks reduce repeats; they do not establish persistent physical/world identities. Scores are model scores, not calibrated correctness probabilities.
+
+This optional detector needs Python for the supported Ultralytics inference runtime. It runs as one bounded subprocess per test; the multiplayer server remains Node/`ws`, without another HTTP service. Weights, text encoder and environment are ignored in Git. Tested on this laptop with Python 3.11.9, CPU Torch 2.14.1, torchvision 0.29.1, Ultralytics 8.4.188 and the pinned Ultralytics CLIP dependency.
+
+From `server/` on Windows:
+
+```powershell
+py -3.11 -m venv .venv-yolo
+.venv-yolo/Scripts/python.exe -m pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cpu
+.venv-yolo/Scripts/python.exe -m pip install -r requirements-yoloe.txt
+.venv-yolo/Scripts/python.exe tools/yoloe_worker.py --warmup
+npm.cmd start
+```
+
+Warm-up downloads official weights and the MobileCLIP text encoder into `.cache/yoloe/`, then writes a ready marker after real inference. Installation/downloads need network access; normal YOLOE video inference stays on the laptop and needs no Gemini key. `YOLOE_PYTHON` overrides the isolated interpreter. Mac/Linux use `.venv-yolo/bin/python`. See upstream [YOLOE documentation](https://docs.ultralytics.com/models/yoloe/) and [license information](https://www.ultralytics.com/license).
+
+Refresh `/dashboard/videos`, select a detector, and upload the same clips for comparison. YOLOE is selected initially when ready. Temporary local copies are removed after success/failure/cancel, and a ten-minute timeout kills a stuck worker. Local selection never invokes Gemini. YOLOE results add `confidence`, `frameIndex`, and an optional annotated `frameJpeg`; clicking a detection shows its exact decoded frame even when a MOV cannot preview in the browser. Download JSON records model/settings. The public COCO smoke test proves upload/inference/preview plumbing, not real-room accuracy: it correctly detects chairs, a refrigerator and a television, but also mislabels a fireplace as a television. Actual moving-room comparison remains open.
+
+`npm.cmd test` covers Node integration/validation/cancellation. `.venv-yolo/Scripts/python.exe tools/test_yoloe_worker.py` tests temporal overlap grouping. Smoke media/results are in ignored `.cache/yoloe/`. No gameplay setup, geometry or iOS endpoints are changed.
+
 ## Legacy sampled-frame/image helpers
 
 Existing `suggest` and `scan_start`/`scan_frame`/`scan_stop` helpers remain for detector diagnostics. They are not the updated iOS capture pipeline and cannot set room geometry. All new scan work follows the architecture's two recorded videos, timestamped poses and intrinsics, with geometry and station placement on the server.

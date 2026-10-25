@@ -2,6 +2,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 const { RoomError, requireAction } = require('./errors');
 const { normalizeObjects, DEFAULT_GEMINI_MODEL } = require('./gemini');
 const { movieMetadata } = require('./videoMetadata');
+const { createYoloDetector } = require('./yoloDetector');
 
 const API = 'https://generativelanguage.googleapis.com';
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024;
@@ -139,6 +140,7 @@ function readBody(request) {
 
 function createVideoTestHandler(options) {
   const detector = options?.videoDetector || createVideoDetector(options?.videoDetectorOptions);
+  const yoloDetector = options?.yoloDetector || createYoloDetector(options?.yoloDetectorOptions);
   let busy = false;
   return async (request, response) => {
     const controller = new AbortController();
@@ -151,12 +153,14 @@ function createVideoTestHandler(options) {
       response.setHeader('Cache-Control', 'no-store');
       if (request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ configured: detector.configured, model: detector.model, quality: detector.quality || null, maxVideoBytes: MAX_VIDEO_BYTES, busy })); return;
+        response.end(JSON.stringify({ configured: detector.configured, model: detector.model, quality: detector.quality || null,
+          detectors: { gemini: { configured: detector.configured, model: detector.model, quality: detector.quality || null },
+            yoloe: { configured: yoloDetector.configured, model: yoloDetector.model, quality: yoloDetector.quality || null } },
+          maxVideoBytes: MAX_VIDEO_BYTES, busy })); return;
       }
       requireAction(request.method === 'POST' && request.headers['x-roomshift-video-test'] === '1', 'INVALID_REQUEST', 'Use the video test dashboard.');
       requireAction(!request.headers.origin || request.headers.origin === `http://${request.headers.host}`, 'INVALID_REQUEST', 'Use the local dashboard origin.');
       requireAction(!busy, 'VIDEO_TEST_BUSY', 'Another video test is running. Wait or cancel it.');
-      requireAction(detector.configured, 'GEMINI_NOT_CONFIGURED', 'Set GEMINI_API_KEY in server/.env and restart.');
       requireAction(Number(request.headers['content-length'] || 0) <= MAX_BODY_BYTES, 'VIDEO_TOO_LARGE', 'Each video must be at most 512 MiB.');
       requireAction(request.headers['content-type']?.startsWith('multipart/form-data;'), 'INVALID_VIDEO', 'Upload both videos using the form.');
       busy = true; ownsSlot = true;
@@ -164,6 +168,11 @@ function createVideoTestHandler(options) {
       let form;
       try { form = await new Request('http://localhost/', { method: 'POST', headers: { 'content-type': request.headers['content-type'] }, body: bytes }).formData(); }
       catch { throw new RoomError('INVALID_VIDEO', 'Invalid video upload form.'); }
+      const engine = form.get('detector') || 'gemini';
+      requireAction(engine === 'gemini' || engine === 'yoloe', 'INVALID_DETECTOR', 'Choose Gemini or YOLOE.');
+      const selected = engine === 'yoloe' ? yoloDetector : detector;
+      requireAction(selected.configured, engine === 'yoloe' ? 'YOLOE_NOT_READY' : 'GEMINI_NOT_CONFIGURED',
+        engine === 'yoloe' ? 'Install and warm up the local YOLOE environment, then restart.' : 'Set GEMINI_API_KEY in server/.env and restart.');
       const videos = [];
       for (const pass of PASSES) {
         const file = form.get(pass);
@@ -175,8 +184,8 @@ function createVideoTestHandler(options) {
         videos.push({ pass, bytes: content, ...metadata });
       }
       response.writeHead(200, { 'content-type': 'application/x-ndjson', 'X-Content-Type-Options': 'nosniff' });
-      write({ type: 'progress', message: 'Both uploads received. Starting Gemini video test.' });
-      const result = await detector.detect(videos, { signal: controller.signal, notify: (message) => write({ type: 'progress', message }) });
+      write({ type: 'progress', message: `Both uploads received. Starting ${engine === 'yoloe' ? 'local YOLOE' : 'Gemini'} video test.` });
+      const result = await selected.detect(videos, { signal: controller.signal, notify: (message) => write({ type: 'progress', message }) });
       write({ type: 'result', ...result });
     } catch (error) {
       request.resume();
