@@ -13,7 +13,8 @@ Status: interview complete, pending user approval. No code or docs written yet.
 | Fallback | Manual tile pick on a 2D room map (also the dev/test mode, build first) |
 | Grid | 1.0 m tiles, derived from the scan bounds |
 | Position updates | Each phone sends its tile (not raw pose) at ~2-4 Hz; server decides adjacency |
-| AI | Host takes ARFrame photos, Gemini Flash returns objects + bounding boxes, app raycasts box centers to world points then tiles; host accepts/rejects stations. Key stays on the server |
+| Scan (revised) | Host records 2 videos + pose logs (overview, then edge walk). Server builds polygon, grid, stations, emergency tile. Task stations on edge tiles only. Players see AR icons (question mark on tasks, EMERGENCY text on the meeting tile) |
+| AI | Gemini Flash on the videos returns timestamped objects; server casts a ray from the pose at that time and snaps to the nearest edge tile; host can edit. No canned fallback. Key stays on the server |
 | Roles | 1 impostor + 3 crew (count configurable) |
 | Kill | Impostor swipe, valid only if victim is on the SAME tile, 25s cooldown |
 | Death | Ghost leaves their phone on the spot as the body and may wander; the phone's tile is the body location; others report from that tile |

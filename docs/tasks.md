@@ -1,46 +1,55 @@
 # Tasks
 
-Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contracts/Net/Integration. Cut order when behind: gesture task, sabotage, Gemini suggestions.
+Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contracts/Net/Integration. Cut order when behind: gesture task, sabotage, Gemini placement (fall back to host-placed stations on edge tiles).
+
+## Next acceptance priorities
+1. **D — unblock the phone client:** implement the Codable models and `GameClient`; verify lobby receive and reconnect against the running server. These client paths are not present in the current checkout.
+2. **B + D — play a complete manual-tile round on simulators/phones:** verify lobby/readiness, private role reveal, tile actions, task/kill/meeting/vote/end screens, and the ghost instructions. Server-side tests and bot round already pass; client integration is the remaining acceptance.
+3. **B — finish and test task/sabotage UI on device:** confirm each motion task succeeds/fails as specified and lights-out blocks tasks until a crew member uses the fix station. Server rules are implemented and tested.
+4. **A + C + D — establish scan-to-grid with a shared fixture before real-room AR:** capture/upload both passes, validate polygon/grid and emergency tile, then test host review and manual fallback. Gemini station placement and AR icons follow this foundation.
 
 ## Phase 0: Contracts (D, first hour; blocks everything)
 - [ ] D: `MyApp/Models/` Codable types matching `docs/architecture.md`. AC: compiles; sample JSON round-trips.
 - [ ] D: `MyApp/Net/GameClient.swift` (connect, send, receive, reconnect with playerId). AC: connects to the server and prints `lobby`.
-- [x] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room. Verified with automated tests and `npm run smoke`; all four clients receive identical lobby membership and ready state.
-
-Backend/client coordination: approved wire details (ready/connected fields, flat state/meeting messages, emergency tile, two-report manual tiles, Gemini boxes and map upload ownership) are recorded in `docs/architecture.md`. D should align client models/networking with these details. Roles remain private; disconnect clears readiness and reconnect preserves identity.
-
-Live-video coordination (user-approved): A+D should implement host/lobby-only `scan_start`, `scan_frame`, `scan_stop` and handle private `scan_status` / `scan_detections`, retaining each frame's AR pose/intrinsics by frameId. Backend limits are 1 FPS, 256 KiB/JPEG and 90 s per session. Intermediate frames can be dropped; boxes must use the matching captured frame, not the current camera pose. Camera capture must stop on game start/stopped status. See the updated architecture contract.
+- [x] C: `server/` skeleton (`ws`, rooms, `create`/`join`, `lobby`). AC: 4 fake clients join one room. Verified with `npm test` and `npm run smoke`; four clients receive the shared lobby and readiness state.
 
 ## Phase 1: Manual-tile game, end to end (no AR)
-- [x] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md. Verified server rules and WebSocket reconnect tests.
-- [x] C: `server/tools/fakeClient.js` bots. AC: bots can run a full round. `npm run round` exercises four bots, private roles, a task, emergency meeting, voting, and victory.
+- [x] C: state machine for start, roles, tile, kill, report, emergency, meeting, vote, win. Depends on Phase 0. AC: `npm test` covers each rule in architecture.md. Verified by the game-rule and WebSocket tests.
+- [x] C: `server/tools/fakeClient.js` bots. AC: bots can run a full round. Verified with `npm run round` reaching a synchronized crew victory.
 - [ ] B: Lobby, role reveal, room map with manual tile picker, kill swipe, report/emergency buttons, meeting + vote, end screens. Depends on D Net. AC: 4 simulators/phones play a round with manual tiles.
 - [ ] B: dead-player screen telling the ghost to leave the phone and may wander.
 
 ## Phase 2: Tasks and sabotage
 - [ ] B: Tasks in `MyApp/Tasks/`: shake/tilt balance, hold-steady, rotate dial, each calls `taskDone`. AC: each succeeds in under 15 s on a device and fails when idle.
-- [x] C: task counting for living crew only; `taskDone` validation. Tests cover location, role, duplicates, dead crew progress, and task victory.
-- [ ] B+C: lights out + fix station. AC: tasks blocked while lights out. C server portion is implemented/tested, including 45 s cooldown and crew-only station fixes; B device UI integration remains pending.
+- [x] C: task counting for living crew only; `taskDone` validation. Tests cover location, role, duplicates, dead-crew progress, and task victory.
+- [x] C: lights-out state, task blocking, fix-station validation, and sabotage cooldown. Verified by server tests; B's UI and device acceptance remain pending.
+- [ ] B: lights-out + fix-station UI. AC: in the app, tasks are blocked while lights are out and resume after a valid crew fix.
 - [ ] B (cut first): gesture-pattern task.
 
-## Phase 3: Scan and grid (A)
-- [ ] A: RoomPlan scan, derive bounds, build Grid with 1 m tiles. AC: grid dims within 0.5 m of tape measure for a 5x5 m room.
-- [ ] A: save ARWorldMap, upload via `POST /map/:room`; C stores in memory. C's binary upload/store is implemented and tested; A's actual ARWorldMap upload remains pending.
-- [ ] A+D: `setRoom` upload with grid and stations; host UI to review. Server-side host validation and setup handling are implemented/tested; A+D client integration remains pending.
-- [x] C: `GET /map/:room`. Verified exact binary round-trip, room isolation, missing-map errors, host-only/size-limited uploads, and lobby-only writes.
+## Phase 3: Scan capture and server grid
+- [ ] A: two-pass capture in one ARKit session (overview, then edge walk): record 720p mp4 plus `poses.json` (about 10 Hz) and intrinsics; guided UI with a pass timer. AC: both uploads succeed over the hotspot in under 30 s total.
+- [ ] A: save ARWorldMap after pass 2 and upload it via `POST /map/:room`.
+- [x] C: host-only in-memory ARWorldMap `POST /map/:room` and `GET /map/:room`. Verified binary round-trip, room isolation, authorization, size limits, and lobby-only uploads.
+- [ ] C: scan-pass upload endpoints, in-memory pass storage, and `POST /scan/:room/process`.
+- [x] C: host-only room grid/station setup via `setRoom`, including validation of grid dimensions, accessible tiles, station kinds and task types. Server tests cover setup validation; this is not yet the edge-tile `editStation` / `confirmSetup` workflow in the architecture contract.
+- [ ] C: polygon + grid from the edge-walk path; `scan_failed` on open loop or area under 4 m^2. AC: a 5x5 m test walk gives dims within 1 tile; test with a recorded `poses.json` fixture, no phone needed.
+- [ ] C: emergency tile at the centroid.
+- [ ] D: shared `poses.json` fixture and sample `setup` JSON committed to `docs/fixtures/` early so A, B and C can work in parallel.
+- [ ] D + C: align the implemented lobby/game wire details (`ready`, `setRoom`, flat state) with `docs/architecture.md` before client models ship; current architecture tables still describe `editStation` / `confirmSetup` and the original grid shape.
+- [ ] B: host setup review screen (2D map, stations on edge tiles, move/delete/add, confirm).
 
 ## Phase 4: Relocalization and live tiles (A)
 - [ ] A: load map, relocalize, 20 s timeout then manual mode. AC: 3 of 3 joiners relocalize in the real room, or fall back cleanly.
 - [ ] A: compute tile and send at 2-4 Hz; server 2-report filter. AC: two phones standing together report the same tile 90 percent of the time.
 - [ ] Decision gate (hour ~14): if relocalization fails in the real room, ship manual mode and remove AR from the demo path.
 
-C dependency complete: server accepts validated tile reports with the two-consecutive-report filter for both `ar` and `manual` sources. Physical relocalization/accuracy acceptance criteria remain owned by A.
-
-## Phase 5: Gemini stations
-- [x] C: user-approved host/lobby continuous video interface (`scan_start`, `scan_frame`, `scan_stop`, private `scan_status`/`scan_detections`). Browser test streamed 6 sampled frames from a public 5-second MP4; Flash-Lite returned 2 frame-matched results with sensible labels (trees, bench, vehicles, fence). Latest capture-to-result latency was 18.8 s including queue time, so 1 FPS input is not a 1 FPS inference guarantee. All 30 automated tests pass. Native Gemini Live transport was tested but its labels were inaccurate; the user approved stateless Flash-Lite analysis behind the continuous feed. A+D iOS camera/pose integration and real room validation remain pending.
-- [x] C: `suggest` endpoint calling Gemini Flash with JSON output; key from `.env`. AC: returns labeled boxes for a test photo. Verified with mocked provider/error tests and live end-to-end `npm run test:gemini` requests using Google's public scones JPEG. The tuned Flash-Lite configuration returned 12 concrete labels (including coffee mug, bowl, and spoon) with valid normalized boxes in about 3 seconds using the saved key. Generic labels are filtered. All 23 automated backend tests pass. Real room detection quality and station suitability still need host review during A/B integration. Keys remain in ignored `.env` only.
-- [ ] A: capture frames, raycast box centers to tiles, map labels to task types.
-- [ ] B: host accept/reject UI. AC: at least 3 stations placed in a scan.
+## Phase 5: Gemini stations and AR icons
+- [x] C: host-only single-photo Gemini suggestions with normalized object boxes. Verified with mocked tests and a live public test photo; this does not satisfy two-video timestamped detection or place stations.
+- [x] C: host-only continuous scan-frame WebSocket lifecycle, bounded buffering, frame-correlated private detections, and stop-on-game-start/disconnect. Automated tests and a browser sample-video run verified the server path; iOS camera/pose integration remains pending.
+- [ ] C: send both videos to Gemini Flash with JSON output; key from `.env`. AC: returns labeled, timestamped boxes for a test video.
+- [ ] C: place stations: ray from pose at `t` through the box center, intersect the polygon, snap to the nearest edge tile, 2 tile spacing, label to task type. AC: on the fixture, at least 3 stations land on edge tiles.
+- [ ] A: AR overlay: world-anchored question-mark icons on task tiles, EMERGENCY text icon on the emergency tile, wrench on the fix station during lights out, hidden for ghosts and until relocalized. AC: icons stay within one tile of the real spot on 2 phones.
+- [ ] B: icon assets and the 2D map equivalents for manual mode.
 
 ## Phase 6: Demo
 - [ ] D: scripted run (scan, stations, one task, one kill, report, vote) rehearsed 3 times on hotspot. AC: under 3 minutes, no restarts.
