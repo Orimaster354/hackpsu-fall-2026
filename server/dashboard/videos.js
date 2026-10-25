@@ -17,7 +17,7 @@ function selectDetector() {
     : `Model: ${selected.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${selected.quality ? ` · High detail, ${selected.quality.fps} FPS · Videos analyzed separately` : ''}`;
   $('upload-notice').textContent = engine() === 'yoloe'
     ? 'YOLOE processes videos locally. If station reasoning is checked, only detection labels/scores/boxes/IDs go to Gemini; no videos or frame images are sent. Temporary local copies are removed after the run.'
-    : 'Gemini mode sends both complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
+    : 'Gemini mode sends selected complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
   $('reasoning').disabled = !detectorConfig.reasoning?.configured || Boolean(controller);
   $('reasoning-status').textContent = detectorConfig.reasoning?.configured
     ? `Reasoning model: ${detectorConfig.reasoning.model}. Suggestions still require physical placement and review.`
@@ -32,16 +32,18 @@ function log(message) {
   $('events').prepend(li);
 }
 function controls() {
-  $('start').disabled = !configured || Boolean(controller) || !passes.every((pass) => clips[pass]?.ready);
+  const selected = passes.filter((pass) => clips[pass]?.file);
+  $('start').disabled = !configured || Boolean(controller) || !clips.overview?.ready || selected.some((pass) => !clips[pass].ready);
   $('cancel').disabled = !controller;
   for (const pass of passes) $(pass).disabled = Boolean(controller);
   $('detector').disabled = Boolean(controller);
   $('reasoning').disabled = !detectorConfig?.reasoning?.configured || Boolean(controller);
-  const waiting = passes.filter((pass) => !clips[pass]?.ready);
+  $('edge-clear').disabled = Boolean(controller) || !clips.edge?.file;
+  const waiting = ['overview', ...selected.filter((pass) => pass !== 'overview')].filter((pass) => !clips[pass]?.ready);
   $('start-reason').textContent = controller ? 'Analysis is running. Progress appears below.'
     : !configured ? 'The selected detector is not configured. See the model status above.'
       : waiting.length ? `Choose a valid ${waiting.join(' and ')} video to enable analysis. Check the message below each picker.`
-        : 'Both files selected. Ready to analyze; browser preview is optional.';
+        : `${selected.length} video(s) selected. Ready to analyze; a second video and browser preview are optional.`;
 }
 function draw(pass) {
   const canvas = $(`${pass}-box`); const video = $(`${pass}-video`);
@@ -100,6 +102,24 @@ for (const pass of passes) {
 }
 window.addEventListener('resize', () => passes.forEach(draw));
 
+function addNoteThumbnail(button, detection) {
+  if (!detection.frameJpeg) return;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'note-crop'; canvas.width = 160; canvas.height = 100;
+  canvas.setAttribute('aria-label', 'Close-up of this detected note');
+  button.prepend(canvas);
+  const image = new Image();
+  image.onload = () => {
+    const [x, y, w, h] = detection.box;
+    const left = Math.max(0, x-w*0.5)*image.width, top = Math.max(0, y-h*0.5)*image.height;
+    const width = Math.min(1, x+w*1.5)*image.width-left, height = Math.min(1, y+h*1.5)*image.height-top;
+    const scale = Math.min(canvas.width/width, canvas.height/height);
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#080e16'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, left, top, width, height, (canvas.width-width*scale)/2, (canvas.height-height*scale)/2, width*scale, height*scale);
+  };
+  image.src = `data:image/jpeg;base64,${detection.frameJpeg}`;
+}
+
 function showResult(data) {
   result = data;
   let total = 0;
@@ -116,6 +136,8 @@ function showResult(data) {
       button.dataset.candidateId = `${passResult.pass}:${index}`;
       const context = detection.context || [];
       button.textContent = `${passResult.pass}:${index} · ${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''} · ${context.length ? context.map((item) => `near ${item.label} (image gap ${item.imageGap.toFixed(3)})`).join(', ') : 'wall context unknown'}`;
+      button.textContent += ` · seen in ${detection.observationCount ?? 1} sampled frame(s)`;
+      addNoteThumbnail(button, detection);
       button.addEventListener('click', () => {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-pressed', 'true');
@@ -157,19 +179,19 @@ $('test-form').addEventListener('submit', async (event) => {
   if ($('start').disabled) return;
   controller = new AbortController(); result = null; $('download').disabled = true; controls();
   for (const pass of passes) $(`${pass}-stats`).textContent = '';
-  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; clips[pass].selected = null; draw(pass); }
+  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; if (clips[pass]) clips[pass].selected = null; draw(pass); }
   $('events').replaceChildren(); $('error').hidden = true; $('status').textContent = 'ANALYZING';
   $('planning').hidden = true;
-  $('summary').textContent = 'Uploading both videos…';
+  $('summary').textContent = 'Uploading selected videos…';
   const started = Date.now();
   timer = setInterval(() => { $('elapsed').textContent = `${Math.floor((Date.now() - started) / 1000)}s elapsed`; }, 1000);
-  log(`Sending both video files to the backend for ${engine() === 'yoloe' ? 'local YOLOE' : 'Gemini'} analysis.`);
+  log(`Sending selected video files to the backend for ${engine() === 'yoloe' ? 'local YOLOE' : 'Gemini'} analysis.`);
   let gotResult = false;
   try {
     const form = new FormData();
     form.append('detector', engine());
     form.append('reasoning', $('reasoning').checked && detectorConfig.reasoning?.configured ? '1' : '0');
-    for (const pass of passes) form.append(pass, clips[pass].file);
+    for (const pass of passes) if (clips[pass]?.file) form.append(pass, clips[pass].file);
     const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
     const consume = (line) => {
@@ -195,6 +217,7 @@ $('test-form').addEventListener('submit', async (event) => {
   } finally { clearInterval(timer); controller = null; controls(); }
 });
 $('cancel').addEventListener('click', () => controller?.abort());
+$('edge-clear').addEventListener('click', () => { $('edge').value = ''; $('edge').dispatchEvent(new Event('change')); });
 $('detector').addEventListener('change', () => { result = null; $('download').disabled = true; selectDetector(); });
 $('download').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));

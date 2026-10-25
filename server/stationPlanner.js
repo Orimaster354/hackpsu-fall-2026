@@ -42,10 +42,9 @@ function validatePlan(value, candidates) {
 function createStationPlanner({ apiKey = process.env.GEMINI_API_KEY,
   model = process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
   fetchImpl = fetch } = {}) {
-  return { configured: Boolean(apiKey), model, async plan(detections, { signal } = {}) {
-    const candidates = planningCandidates(detections);
+  async function planCandidates(candidates, { signal } = {}) {
     if (!candidates.length) return { status: 'no_candidates', summary: 'No sufficiently strong sticky-note candidates. Do not substitute furniture; record clearer views of wall notes or use manual placement.', suggestions: [], placementReady: false };
-    requireAction(candidates.length <= 24 && apiKey && /^[a-zA-Z0-9._-]+$/.test(model),
+    requireAction(candidates.length <= 64 && apiKey && /^[a-zA-Z0-9._-]+$/.test(model),
       'PLANNER_NOT_CONFIGURED', 'Configure the server Gemini key and reasoning model.');
     let response;
     const thinkingConfig = /^gemini-3[.-]/.test(model) ? { thinkingLevel: 'LOW' }
@@ -80,7 +79,9 @@ function createStationPlanner({ apiKey = process.env.GEMINI_API_KEY,
       if (error instanceof RoomError) throw error;
       throw new RoomError('PLANNER_INVALID_RESPONSE', 'Gemini station reasoning returned invalid JSON. Detections are retained.');
     }
-  } };
+  }
+  return {configured:Boolean(apiKey),model,planCandidates,
+    plan:(detections,options)=>planCandidates(planningCandidates(detections),options)};
 }
 
 module.exports = { createStationPlanner, planningCandidates, validatePlan };

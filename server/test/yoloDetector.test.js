@@ -14,15 +14,24 @@ const result = () => ({ model: MODEL, passes: videos.map(({ pass, duration }) =>
 test('YOLOE adapter validates decoded-frame timestamps, class scores and normalized boxes', () => {
   assert.equal(validateYoloResult(result(), videos).passes[0].detections[0].confidence, 0.8);
   assert.equal(validateYoloResult(result(), videos).passes[0].detections[0].context[0].label, 'whiteboard');
+  const grouped = result(); grouped.passes[0].detections[0].observationCount = 2;
+  assert.equal(validateYoloResult(grouped, videos).passes[0].detections[0].observationCount, 2);
   for (const change of [{ t: 4 }, { box: [0.9, 0.1, 0.5, 0.5] }, { label: 'person' }, { label: 'door' },
     { context: [{ label: 'sticky note', box: [0, 0, 0.1, 0.1], confidence: 0.9, imageGap: 0.1 }] },
     { context: [{ label: 'door', box: [0, 0, 0.1, 0.1], confidence: 0.9, imageGap: 3 }] },
-    { confidence: 0.2 }, { frameIndex: -1 }, { frameJpeg: 'not base64' }]) {
+    { confidence: 0.2 }, { frameIndex: -1 }, { observationCount: 0 }, { observationCount: 121 }, { frameJpeg: 'not base64' }]) {
     const bad = result(); Object.assign(bad.passes[0].detections[0], change);
     assert.throws(() => validateYoloResult(bad, videos), { code: 'YOLOE_INVALID_RESPONSE' });
   }
   const duplicate = result(); duplicate.passes[1].pass = 'overview';
   assert.throws(() => validateYoloResult(duplicate, videos), { code: 'YOLOE_INVALID_RESPONSE' });
+});
+
+test('YOLOE validation accepts one overview and rejects fabricated extra or missing passes', () => {
+  const single = result(); single.passes = single.passes.slice(0, 1);
+  assert.equal(validateYoloResult(single, videos.slice(0, 1)).passes.length, 1);
+  assert.throws(() => validateYoloResult(result(), videos.slice(0, 1)), { code: 'YOLOE_INVALID_RESPONSE' });
+  assert.throws(() => validateYoloResult(single, videos), { code: 'YOLOE_INVALID_RESPONSE' });
 });
 
 function fakeProcess({ hold = false, broken = false } = {}) {
