@@ -27,6 +27,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var session: GameSession
     @State private var position: PositionCoordinator
+    @State private var audio = GameAudio()
     @State private var deathTrigger = 0
     @State private var stingerTrigger = 0
     @State private var stingerTitle = "EMERGENCY MEETING"
@@ -88,9 +89,11 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.3), value: session.stage)
         .environment(session)
         .environment(position)
+        .environment(\.gameAudio, audio)
         .environment(\.startRoomScan, scanAction)
         .preferredColorScheme(.dark)
         .tint(Theme.Palette.crew)
+        .onChange(of: audioScene, initial: true) { _, scene in audio.setScene(scene) }
         .onChange(of: session.isAlive) { old, new in
             if old && !new { deathTrigger += 1 }
         }
@@ -98,6 +101,7 @@ struct RootView: View {
         .sensoryFeedback(.warning, trigger: stingerTrigger)
         .onChange(of: session.stage) { _, stage in
             if stage == .meeting {
+                audio.play(.meeting)
                 stingerTitle = session.meeting?.reason == .report ? "BODY REPORTED" : "EMERGENCY MEETING"
                 stingerTrigger += 1
                 AccessibilityNotification.Announcement(stingerTitle.capitalized).post()
@@ -110,9 +114,18 @@ struct RootView: View {
             }
         }
         .task(id: session.stage) { syncWithStage() }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            audio.setActive(phase == .active)
             // Back from the background: if AR gave up while the app was away, try once more.
             if phase == .active { position.appBecameActive() }
+        }
+    }
+
+    private var audioScene: GameAudio.Scene {
+        switch session.stage {
+        case .home, .lobby, .roleReveal, .ended: .lobby
+        case .playing: session.lightsOut ? .lightsOut : .gameplay
+        case .meeting, .result: .meeting
         }
     }
 

@@ -6,9 +6,13 @@ import SwiftUI
 struct GameView: View {
     @Environment(GameSession.self) private var session
     @Environment(PositionCoordinator.self) private var position
+    @Environment(\.gameAudio) private var audio
     @AppStorage(SettingsKey.showEveryone) private var showEveryone = false
     @State private var taskStation: MapStation?
     @State private var taskCameraInUse = false
+    @State private var fixTraceOpen = false
+    /// Closing the power panel snoozes it until the player leaves the fix tile or the lights change.
+    @State private var fixTraceSnoozed = false
     /// The station whose task was just closed. It does not reopen until the player leaves its tile.
     @State private var snoozedStationID: String?
     /// Counts the times the crew brought the lights back while this player was watching.
@@ -41,15 +45,29 @@ struct GameView: View {
         .overlay { LightsEffect(isOut: inDark, restores: lightRestores) }
         .onChange(of: session.lightsOut) { old, new in
             if old, !new, session.role == .crew, session.isAlive, session.phase == .playing { lightRestores += 1 }
+            fixTraceSnoozed = false
+            openFixOnArrival()
         }
         .sensoryFeedback(.success, trigger: lightRestores)
         .sensoryFeedback(.warning, trigger: inDark) { _, now in now }
         .onChange(of: lightRestores) {
             AccessibilityNotification.Announcement("Lights restored. Tasks are back on.").post()
         }
-        .fullScreenCover(item: $taskStation, onDismiss: { taskCameraInUse = false }) { station in
+        .fullScreenCover(item: $taskStation, onDismiss: {
+            taskCameraInUse = false
+            openFixOnArrival()
+        }) { station in
             MotionTaskSheet(station: station) { session.completeTask(at: station) }
                 .onAppear { taskCameraInUse = true }
+        }
+        .fullScreenCover(isPresented: $fixTraceOpen, onDismiss: {
+            fixTraceSnoozed = session.onFixTile && session.lightsOut
+            taskCameraInUse = false
+            openTaskOnArrival()
+        }) {
+            if let fix = session.fixStation {
+                FixTraceSheet(station: fix) { session.fix(fix) }
+            }
         }
         .onChange(of: session.canAttemptTasks) { _, allowed in
             if !allowed { taskStation = nil }
@@ -59,7 +77,15 @@ struct GameView: View {
         .onChange(of: taskStation) { old, new in
             if new == nil, let old { snoozedStationID = old.id }
         }
-        .sheet(isPresented: $showPosition) { PositionSheet() }
+        .onChange(of: session.canFixHere, initial: true) { _, _ in openFixOnArrival() }
+        .onChange(of: canFixInAR) { _, _ in openFixOnArrival() }
+        .onChange(of: session.onFixTile) { _, onTile in
+            if !onTile { fixTraceSnoozed = false }
+        }
+        .sheet(isPresented: $showPosition, onDismiss: {
+            openTaskOnArrival()
+            openFixOnArrival()
+        }) { PositionSheet() }
         .sensoryFeedback(.warning, trigger: session.isAlive) { old, new in old && !new }
         .task(id: session.error) {
             guard session.error != nil, (try? await Task.sleep(for: .seconds(3))) != nil else { return }
@@ -73,10 +99,31 @@ struct GameView: View {
     private func openTaskOnArrival() {
         let here = session.taskStationHere
         if here?.id != snoozedStationID { snoozedStationID = nil }
-        guard position.mode == .ar, taskStation == nil, !showPosition,
+        guard position.mode == .ar, taskStation == nil, !fixTraceOpen, !taskCameraInUse, !showPosition,
               let station = here, station.id != snoozedStationID,
               session.canDoTask(at: station) else { return }
+        taskCameraInUse = true
         taskStation = station
+    }
+
+    private var canFixInAR: Bool {
+        position.mode == .ar && position.status == .tracking
+            && (position.ar as? ARPositionProvider)?.isSessionRunning == true
+    }
+
+    /// A fix panel opens once per visit in real AR. Simulator and manual play use an explicit button.
+    private func openFixOnArrival() {
+        guard canFixInAR, !fixTraceSnoozed else { return }
+        openFixTrace()
+    }
+
+    private func openFixTrace() {
+        guard session.canFixHere, session.fixStation != nil, !fixTraceOpen,
+              taskStation == nil, !taskCameraInUse, !showPosition else { return }
+        fixTraceSnoozed = true
+        // Remove LightsOutARView before the sheet takes the shared camera view.
+        taskCameraInUse = true
+        fixTraceOpen = true
     }
 
     // MARK: Header and map
@@ -246,8 +293,25 @@ struct GameView: View {
 
     @ViewBuilder private var crewControls: some View {
         if session.canFixHere, let fix = session.fixStation {
-            HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) { session.fix(fix) }
-                .accessibilityIdentifier("fixButton")
+            if canFixInAR {
+                Button { openFixTrace() } label: {
+                    Label("Restore power", systemImage: "bolt.fill")
+                }
+                .buttonStyle(.game(.primary))
+                .accessibilityIdentifier("restorePowerButton")
+            } else {
+                HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) {
+                    guard session.canFixHere else { return }
+                    audio?.play(.taskComplete)
+                    session.fix(fix)
+                }
+                    .accessibilityIdentifier("fixButton")
+                #if targetEnvironment(simulator)
+                Button("Simulator: draw to restore power") { openFixTrace() }
+                    .buttonStyle(.game(.secondary))
+                    .accessibilityIdentifier("simulatorFixTraceButton")
+                #endif
+            }
         } else if let station = session.taskStationHere {
             if session.completedStationIDs.contains(station.id) {
                 Label("\(station.name): done", systemImage: "checkmark.circle.fill")
@@ -255,7 +319,10 @@ struct GameView: View {
                     .foregroundStyle(Theme.Palette.success)
                     .frame(minHeight: 56)
             } else {
-                Button { taskStation = station } label: {
+                Button {
+                    taskCameraInUse = true
+                    taskStation = station
+                } label: {
                     Label("Do task: \(station.name)", systemImage: "hand.tap.fill")
                 }
                 .buttonStyle(.game(.primary))
@@ -287,7 +354,7 @@ private struct PromptLine: View {
 
 private struct LightsOutBanner: View {
     var body: some View {
-        Label("Lights out. Tasks are off until the fix station is held.", systemImage: "lightbulb.slash.fill")
+        Label("Lights out. Restore power at the fix station to bring tasks back.", systemImage: "lightbulb.slash.fill")
             .font(.system(.subheadline, design: .rounded, weight: .bold))
             .foregroundStyle(Theme.Palette.warning)
             .padding(12)
