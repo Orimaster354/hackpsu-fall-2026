@@ -1,10 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createVideoDetector, normalizeDetections } = require('../videoLab');
+const { movieMetadata } = require('../videoMetadata');
 const { createAppServer } = require('../index');
-const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom000000000000')]);
+function atom(type, payload) {
+  const header = Buffer.alloc(8); header.writeUInt32BE(8 + payload.length); header.write(type, 4, 'ascii');
+  return Buffer.concat([header, payload]);
+}
+function movie(brand = 'isom', seconds = 30) {
+  const mvhd = Buffer.alloc(20); mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(seconds * 1000, 16);
+  return Buffer.concat([atom('ftyp', Buffer.from(`${brand}0000`)), atom('moov', atom('mvhd', mvhd))]);
+}
+const mp4 = movie();
 const json = (value) => new Response(JSON.stringify(value));
-const videos = ['overview', 'edge'].map((pass) => ({ pass, bytes: mp4, duration: 30 }));
+const videos = ['overview', 'edge'].map((pass) => ({ pass, bytes: mp4, duration: 30, mimeType: 'video/mp4' }));
 
 function provider({ quota = false, invalid = false } = {}) {
   const calls = []; let fileCount = 0;
@@ -40,6 +49,29 @@ test('two full videos upload, become active, share one inference request and are
   assert.equal(fake.calls.filter((call) => call.options.method === 'DELETE').length, 2);
   assert.equal(fake.calls.filter((call) => call.options.body === mp4).length, 2);
   assert.ok(!JSON.stringify(result).includes('test-key'));
+});
+
+test('MOV uses QuickTime MIME throughout provider upload and inference', async () => {
+  const fake = provider();
+  await createVideoDetector({ apiKey: 'test-key', fetchImpl: fake.fetchImpl, pollMs: 0 }).detect(
+    videos.map((video) => ({ ...video, bytes: movie('qt  '), mimeType: 'video/quicktime' })));
+  const starts = fake.calls.filter((call) => call.url.endsWith('/upload/v1beta/files'));
+  assert.ok(starts.every((call) => call.options.headers['X-Goog-Upload-Header-Content-Type'] === 'video/quicktime'));
+  const uploads = fake.calls.filter((call) => call.url.includes('/upload/session'));
+  assert.ok(uploads.every((call) => call.options.headers['content-type'] === 'video/quicktime'));
+  const request = JSON.parse(fake.calls.find((call) => call.url.includes(':generateContent')).options.body);
+  assert.ok(request.contents[0].parts.filter((part) => part.fileData).every((part) => part.fileData.mimeType === 'video/quicktime'));
+});
+
+test('container metadata validates MP4/MOV durations without browser playback', () => {
+  assert.deepEqual(movieMetadata(mp4, 'clip.mp4'), { mimeType: 'video/mp4', duration: 30 });
+  assert.deepEqual(movieMetadata(movie('qt  '), 'iPhone.MOV'), { mimeType: 'video/quicktime', duration: 30 });
+  const legacy = movie('qt  ').subarray(16); // Older QuickTime movies may omit ftyp.
+  assert.deepEqual(movieMetadata(legacy, 'clip.mov'), { mimeType: 'video/quicktime', duration: 30 });
+  for (const [bytes, name] of [[movie('qt  ', 121), 'long.mov'], [mp4.subarray(0, mp4.length - 1), 'cut.mp4'],
+    [Buffer.from('this is not a video file'), 'fake.mov'], [mp4, 'clip.txt']]) {
+    assert.throws(() => movieMetadata(bytes, name), { code: 'INVALID_VIDEO' });
+  }
 });
 
 test('provider quota/invalid JSON failures clean up both uploaded files without fallback detections', async () => {
@@ -84,6 +116,25 @@ test('local dashboard accepts two MP4 uploads, streams progress and rejects inva
   const bad = form(); bad.set('edge', new Blob(['not really an mp4 video'], { type: 'video/mp4' }), 'bad.mp4');
   assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: bad })).status, 400);
   assert.equal(calls, 1);
+});
+
+test('MOV uploads need no browser-provided duration and the server enforces 120 seconds', async (t) => {
+  let calls = 0;
+  const app = createAppServer({ videoDetector: { configured: true, model: 'test-model', async detect(input) {
+    calls += 1;
+    assert.ok(input.every((video) => video.mimeType === 'video/quicktime' && video.duration === 30));
+    return { passes: [] };
+  } } });
+  const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
+  const url = `http://127.0.0.1:${address.port}/api/dashboard/video-test`;
+  const body = new FormData();
+  for (const pass of ['overview', 'edge']) body.set(pass, new Blob([movie('qt  ')], { type: 'application/octet-stream' }), `${pass}.MOV`);
+  const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  assert.equal(response.status, 200);
+  assert.equal((await response.text()).trim().split('\n').map(JSON.parse).at(-1).type, 'result');
+  body.set('edge', new Blob([movie('qt  ', 121)], { type: 'video/quicktime' }), 'long.mov');
+  const rejected = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  assert.equal(rejected.status, 400); assert.match(await rejected.text(), /INVALID_VIDEO/); assert.equal(calls, 1);
 });
 
 test('one video test at a time and cancellation reaches the detector', async (t) => {
