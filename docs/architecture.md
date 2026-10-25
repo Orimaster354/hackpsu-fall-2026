@@ -117,7 +117,12 @@ On join/reconnect the server sends `joined`, `setup` if available, and the curre
 ## Gemini flow
 Server only. Input: the two videos. Output JSON: `[{label, t, box:[x,y,w,h]}]` (box normalized 0-1, `t` seconds in that video). The server maps each label to a task type (table/desk to hold, sofa to tilt, door to dial, and so on, with a default rotation of types) and places it per "Server scan processing". There is no canned fallback: if Gemini fails or returns nothing usable, the host places stations by hand on the 2D map.
 
+## Developer video diagnostic
+
+Developer diagnostic: `/dashboard/videos` on the server laptop accepts an overview and edge-walk MP4 (64 MiB / 120 s each), uploads both full clips to Gemini and validates per-video timestamps and boxes. Its loopback-only `GET /api/dashboard/video-test` returns model/configuration status; `POST` accepts multipart `overview`, `edge`, `overviewDuration`, `edgeDuration` with `X-Roomshift-Video-Test: 1`, streaming NDJSON progress/result/error records. Results retain pass identity and use `{label,t,box:[x,y,w,h]}` per pass. This diagnostic does not create gameplay setup or replace the documented host scan endpoints. Live two-video acceptance, pose association and geometry remain pending.
+
 ## AR view (players)
+
 After relocalizing, each phone shows world-anchored icons at tile centers, visible from across the room:
 - A question-mark icon on every not-yet-done task station tile (a dimmed icon for tasks the player already completed). The fix station shows a wrench icon only while lights are out.
 - An "EMERGENCY" text icon on the emergency tile.
