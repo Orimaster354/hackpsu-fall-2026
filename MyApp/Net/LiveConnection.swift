@@ -7,11 +7,15 @@ import Foundation
 /// static so they can be tested without a socket.
 ///
 /// The connection opens on the first `create` or `join`, using the address saved in Settings.
+@MainActor
 final class LiveConnection {
     let client: GameClient
     let session: GameSession
 
-    init(client: GameClient = GameClient(), session: GameSession = GameSession()) {
+    init(client: GameClient? = nil, session: GameSession? = nil) {
+        // Construct defaults inside the actor-isolated body, not at the caller's argument site.
+        let client = client ?? GameClient()
+        let session = session ?? GameSession()
         self.client = client
         self.session = session
         session.transportName = "Game server (WebSocket)"
@@ -77,9 +81,9 @@ final class LiveConnection {
             return [.joined(playerID: playerId, room: room)]
         case let .lobby(snapshot):
             return [
-                .lobby(players: snapshot.players.map(PlayerInfo.init),
+                .lobby(players: snapshot.players.map { PlayerInfo($0) },
                        grid: snapshot.grid.map(MapGrid.init),
-                       stations: snapshot.stations.map(MapStation.init),
+                       stations: snapshot.stations.map { MapStation($0) },
                        hasMap: snapshot.hasMap),
                 .setupStatus(confirmed: snapshot.setupConfirmed),
             ]
@@ -87,7 +91,7 @@ final class LiveConnection {
             return SetupStep(rawValue: step).map { [.processing($0)] } ?? []
         case let .setup(grid, stations, confirmed):
             return [
-                .setup(grid: MapGrid(grid), stations: stations.map(MapStation.init)),
+                .setup(grid: MapGrid(grid), stations: stations.map { MapStation($0) }),
                 .setupStatus(confirmed: confirmed),
             ]
         case let .role(role):
@@ -122,7 +126,7 @@ extension MapTile {
 
 extension PlayerInfo {
     init(_ player: Player) {
-        self.init(id: player.id, name: player.name, tile: player.tile.map(MapTile.init), alive: player.alive,
+        self.init(id: player.id, name: player.name, tile: player.tile.map { MapTile($0) }, alive: player.alive,
                   tileSource: player.tileSource, ready: player.ready, connected: player.connected)
     }
 }
@@ -131,7 +135,7 @@ extension MapGrid {
     init(_ grid: Grid) {
         self.init(cols: grid.cols, rows: grid.rows, tileSize: grid.tileSize,
                   originX: grid.originX, originZ: grid.originZ,
-                  playable: Set(grid.playable.map(MapTile.init)), edge: Set(grid.edge.map(MapTile.init)))
+                  playable: Set(grid.playable.map { MapTile($0) }), edge: Set(grid.edge.map { MapTile($0) }))
     }
 }
 
@@ -159,9 +163,9 @@ extension MeetingInfo {
 extension GameSnapshot {
     init(_ state: GameState) {
         self.init(phase: GamePhase(rawValue: state.phase.rawValue) ?? .lobby,
-                  players: state.players.map(PlayerInfo.init),
+                  players: state.players.map { PlayerInfo($0) },
                   tasksDone: state.tasksDone, tasksTotal: state.tasksTotal, lightsOut: state.lightsOut,
                   killCooldownEndsAt: state.killCooldownEndsAt.map(date(fromMillis:)),
-                  meeting: state.meeting.map(MeetingInfo.init))
+                  meeting: state.meeting.map { MeetingInfo($0) })
     }
 }
