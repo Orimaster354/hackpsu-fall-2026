@@ -30,7 +30,7 @@ function validateSweepResult(result,frames,intrinsics){
 }
 function createSweepDetector({pythonPath=process.env.YOLOE_PYTHON || path.join(__dirname,'.venv-yolo',process.platform==='win32'?'Scripts/python.exe':'bin/python'),
   ready=fs.existsSync(path.join(__dirname,'.cache/yoloe/ready.json')),spawnImpl=spawn,timeoutMs=600000}={}){
-  return {async detect(frames,intrinsics,{signal}={}){
+  return {async detect(frames,intrinsics,{signal,onFrame=()=>{}}={}){
     requireAction(ready && fs.existsSync(pythonPath),'SCAN_FAILED','YOLOE is not ready; install and warm up the local detector.');
     signal?.throwIfAborted();
     const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'roomshift-sweep-'));
@@ -50,10 +50,15 @@ function createSweepDetector({pythonPath=process.env.YOLOE_PYTHON || path.join(_
         child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
         child.stderr.on('data',s=>{stderr=(stderr+s).slice(-3000);});
         child.stdout.on('data',s=>{
-          total+=Buffer.byteLength(s);if(total>8*1024*1024){failure=new RoomError('SCAN_FAILED','Detector output exceeded its limit.');child.kill();return;}
+          total+=Buffer.byteLength(s);if(total>16*1024*1024){failure=new RoomError('SCAN_FAILED','Detector output exceeded its limit.');child.kill();return;}
           pending+=s;const lines=pending.split('\n');pending=lines.pop();
           for(const line of lines){if(!line.trim())continue;try{
             const event=JSON.parse(line);
+            if(event.type==='sweep_frame'){
+              const source=frames.find(f=>f.index===event.frame?.index);
+              requireAction(source,'SCAN_FAILED','Detector reported an unknown frame.');
+              onFrame(validateSweepResult({frames:[event.frame]},[source],intrinsics)[0]);
+            }
             if(event.type==='sweep_result')output=validateSweepResult(event,frames,intrinsics);
             if(event.type==='error')failure=new RoomError('SCAN_FAILED','YOLOE could not decode or analyze the sweep.');
           }catch(e){failure=e instanceof RoomError?e:new RoomError('SCAN_FAILED','Invalid detector response.');child.kill();}}
