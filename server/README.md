@@ -62,7 +62,7 @@ The router resolves socket membership and calls `room.game.handle(player, messag
 
 ## Wall Post-it detection and task reasoning
 
-YOLOE-26 Small is the default detector. Only sticky notes are task candidates; doors, windows, whiteboards, switches, outlets, clocks, posters, extinguishers and vents are wall context. The worker samples 1 FPS at 960 px, accepts scores >=0.35 and returns up to eight note observations per pass. Small-note minimum area is 0.0001 of the frame, replacing the furniture filter. This is experimental open-vocabulary detection, not a trained/validated Post-it detector.
+YOLOE-26 Small is the default detector. The detector targets yellow sticky notes using the text prompt `yellow sticky note`; canonical output stays `sticky note`. This prompt is not independent color verification. Only note observations are task candidates; doors, windows, whiteboards, switches, outlets, clocks, posters, extinguishers and vents are wall context. The worker samples 1 FPS at 960 px, accepts scores >=0.35 and returns up to eight note observations per pass. Small-note minimum area is 0.0001 of the frame, replacing the furniture filter. This is experimental open-vocabulary detection, not a trained/validated Post-it detector.
 
 Record clear views of each wall note with its surrounding wall features. Multiple notes with the same label are retained. Short image-overlap tracks reduce repeated frames, but observation IDs are not physical identities: notes can repeat across passes. Neither wall attachment nor unique note identity is verified automatically.
 
