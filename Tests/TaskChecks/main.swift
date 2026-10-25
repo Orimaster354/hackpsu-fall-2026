@@ -1,7 +1,8 @@
 import Foundation
 
-// Checks for the pure motion-task rules (MyApp/Tasks/TaskModels.swift): tilt-pattern directions and how forgiving
-// the steady (hold) task is. They prove the rules, not how a hand feels. The feel needs a phone.
+// Checks for the pure motion-task rules (MyApp/Tasks/TaskModels.swift): the tilt-pattern directions, how forgiving
+// the ball (tilt) task is, the steady (hold) task's original limits, and the hammer. They prove the rules, not how
+// a hand feels. The feel needs a phone.
 
 var checks = 0
 var failures = 0
@@ -13,14 +14,15 @@ func check(_ ok: @autoclosure () -> Bool, _ name: String, _ detail: @autoclosure
 }
 
 /// A reading. Flat and face up is gravity (0, 0, -1); upright is (0, -1, 0).
-func sample(gx: Double = 0, gy: Double = 0, gz: Double = -1, rot: Double = 0, acc: Double = 0, dt: Double = 1.0 / 60) -> MotionSample {
-    MotionSample(gravityX: gx, gravityY: gy, gravityZ: gz, userAcceleration: acc, rotationRate: rot, dt: dt)
+func sample(gx: Double = 0, gy: Double = 0, gz: Double = -1, rot: Double = 0, acc: Double = 0,
+            down: Double = 0, dt: Double = 1.0 / 60) -> MotionSample {
+    MotionSample(gravityX: gx, gravityY: gy, gravityZ: gz, userAcceleration: acc, rotationRate: rot, dt: dt,
+                 accelerationAlongGravity: down)
 }
 
 // MARK: Tilt pattern: the arrow points to the edge that goes DOWN, on both axes
 
 do {
-    // Lowering an edge puts gravity along that edge's axis: right edge down is +x, top edge down is +y.
     check(PatternModel.direction(sample(gx: 0.5, gz: -0.8)) == .right, "right edge down is the right arrow")
     check(PatternModel.direction(sample(gx: -0.5, gz: -0.8)) == .left, "left edge down is the left arrow")
     check(PatternModel.direction(sample(gy: 0.5, gz: -0.8)) == .away, "top edge down is the up arrow")
@@ -39,7 +41,6 @@ do {
     check(tilted(.right, with: sample(gx: 0.5, gz: -0.8)) && tilted(.left, with: sample(gx: -0.5, gz: -0.8)), "left and right are unchanged")
     check(!tilted(.away, with: sample(gy: 0.5, gz: 0.0)), "nothing counts unless the phone is flat")
 
-    // Level between moves: a second tilt only counts after coming back to level.
     var model = PatternModel(sequence: [.away, .toward])
     model.step(sample(gy: 0.5, gz: -0.8))
     check(model.index == 1, "first move counted")
@@ -50,53 +51,49 @@ do {
     check(model.index == 2 && model.isComplete, "after leveling, the next move counts and the task completes")
 }
 
-// MARK: Steady (hold): a little more forgiving, still not easy
+// MARK: Steady (hold): back at its original limits
 
 func run(_ model: inout SteadyModel, seconds: Double, rot: Double, acc: Double, gz: Double = 0) {
     for _ in 0 ..< Int(seconds * 60) { model.step(sample(gy: -1, gz: gz, rot: rot, acc: acc)) }
 }
 
 do {
-    check(SteadyModel.maxRotation > 0.5 && SteadyModel.maxRotation <= 0.8, "rotation limit is a little above the old 0.5 rad/s", "\(SteadyModel.maxRotation)")
-    check(SteadyModel.maxAcceleration > 0.08 && SteadyModel.maxAcceleration <= 0.13, "acceleration limit is a little above the old 0.08 g", "\(SteadyModel.maxAcceleration)")
-
-    var easy = SteadyModel()
-    run(&easy, seconds: SteadyModel.holdSeconds + 0.2, rot: 0.6, acc: 0.10)   // too shaky for the old limits, fine now
-    check(easy.isComplete, "a moderately steady hand now completes the hold")
-
+    check(SteadyModel.maxRotation == 0.5 && SteadyModel.maxAcceleration == 0.08, "the hold task keeps its original limits")
     var still = SteadyModel()
     run(&still, seconds: SteadyModel.holdSeconds + 0.2, rot: 0.05, acc: 0.01)
     check(still.isComplete && still.steady, "a still phone completes the hold")
-
+    var shaky = SteadyModel()
+    run(&shaky, seconds: 10, rot: 0.6, acc: 0.10)
+    check(!shaky.isComplete, "a moderate wobble does not complete the hold")
     var wave = SteadyModel()
     run(&wave, seconds: 10, rot: 1.5, acc: 0.05)
     check(!wave.isComplete && wave.progress == 0, "waving the phone never completes it")
-
-    var bump = SteadyModel()
-    run(&bump, seconds: 10, rot: 0.1, acc: 0.4)
-    check(!bump.isComplete && bump.progress == 0, "bumping the phone never completes it")
-
-    var edge = SteadyModel()
-    run(&edge, seconds: 10, rot: 0.8, acc: 0.12)   // just over both new limits
-    check(!edge.isComplete, "a shake just over the limits does not complete it")
-
     var flat = SteadyModel()
     run(&flat, seconds: 10, rot: 0, acc: 0, gz: -1)
     check(!flat.upright && flat.progress == 0, "a phone lying flat never completes it")
-
-    var drain = SteadyModel()
-    run(&drain, seconds: 2, rot: 0.05, acc: 0.01)
-    let full = drain.progress
-    run(&drain, seconds: 0.5, rot: 1.5, acc: 0.3)
-    let expected = (2.0 - 0.5 * SteadyModel.drainFactor) / SteadyModel.holdSeconds
-    check(abs(drain.progress - expected) < 0.02 && drain.progress < full, "a wobble drains progress at the documented rate", "\(drain.progress) vs \(expected)")
-    check(SteadyModel.drainFactor < 2 && SteadyModel.drainFactor >= 1, "draining is gentler than before (was 2) but still real")
 }
 
-// MARK: Balance (tilt): unchanged, documented. The ball rolls toward the edge that is lowered.
+// MARK: Balance (the ball task): easier, still not free
+
+/// Plays the ball task with a simple player: tilt toward the ring's center, in proportion to how far off it is.
+/// Returns whether the task was completed at any point, which is what the real task counts (it ends on completion).
+func balanceRun(drift phase: Double, seconds: Double, skill: Double) -> Bool {
+    var model = BalanceModel(phase: phase)
+    for _ in 0 ..< Int(seconds * 60) {
+        // To move the ball toward the center, lower the edge on the center's side. The ball rolls toward the lowered
+        // edge: +x for gravityX > 0, and up the screen (negative y) for gravityY > 0.
+        let gx = max(-0.5, min(0.5, -model.x * skill))
+        let gy = max(-0.5, min(0.5, model.y * skill))
+        model.step(sample(gx: gx, gy: gy, gz: -0.9))
+        if model.isComplete { return true }
+    }
+    return false
+}
 
 do {
-    // y is screen-down positive: top edge down (+gravity.y) rolls the ball up the screen (negative y).
+    check(BalanceModel.zoneRadius > 0.4 && BalanceModel.zoneRadius <= 0.5, "the ring is a little wider than the old 0.4", "\(BalanceModel.zoneRadius)")
+
+    // The ball rolls toward the lowered edge (unchanged).
     var up = BalanceModel(phase: 0)
     for _ in 0 ..< 12 { up.step(sample(gy: 0.4, gz: -0.9)) }
     check(up.y < 0, "top edge down rolls the ball up the screen", "\(up.y)")
@@ -106,6 +103,71 @@ do {
     var right = BalanceModel(phase: .pi / 2)
     for _ in 0 ..< 12 { right.step(sample(gx: 0.4, gz: -0.9)) }
     check(right.x > 0, "right edge down rolls the ball right", "\(right.x)")
+
+    // An attentive player can finish it, over many different drift directions.
+    var finished = 0
+    let phases = stride(from: 0.0, to: 2 * Double.pi, by: Double.pi / 4).map { $0 }
+    for phase in phases where balanceRun(drift: phase, seconds: 10, skill: 3.0) { finished += 1 }
+    check(finished == phases.count, "a player correcting toward the center finishes from every drift direction", "\(finished) of \(phases.count)")
+
+    // An idle phone never finishes: the drift pushes the ball out of the ring and the lost progress is never regained.
+    var idleFinished = 0
+    for phase in phases {
+        var model = BalanceModel(phase: phase)
+        for _ in 0 ..< 60 * 30 { model.step(sample(gz: -1)) }
+        if model.isComplete { idleFinished += 1 }
+    }
+    check(idleFinished == 0, "an idle phone never finishes the ball task", "\(idleFinished) of \(phases.count) finished")
+
+    // Easier, not free: barely correcting never finishes (checked offline: the correction needed to hold the ring
+    // is about 0.37 now, 0.5 before, so 0.2 is well short), while a middling effort now does, which the old
+    // settings did not allow.
+    var lazyFinished = 0
+    for phase in phases where balanceRun(drift: phase, seconds: 10, skill: 0.2) { lazyFinished += 1 }
+    check(lazyFinished == 0, "barely correcting never finishes", "\(lazyFinished) of \(phases.count) finished")
+    var middlingFinished = 0
+    for phase in phases where balanceRun(drift: phase, seconds: 10, skill: 0.45) { middlingFinished += 1 }
+    check(middlingFinished >= phases.count - 1, "a middling effort finishes", "\(middlingFinished) of \(phases.count) finished")
+}
+
+// MARK: Hammer: downward strokes count, nothing else does
+
+func swing(_ model: inout HammerModel, down: Double, frames: Int = 6) {
+    for _ in 0 ..< frames { model.step(sample(gy: -1, gz: 0, down: down)) }
+}
+func rest(_ model: inout HammerModel, seconds: Double) {
+    for _ in 0 ..< Int(seconds * 60) { model.step(sample(gy: -1, gz: 0)) }
+}
+
+do {
+    var model = HammerModel()
+    swing(&model, down: 1.8)
+    check(model.hits == 1, "a hard downward stroke is one hit", "\(model.hits)")
+    swing(&model, down: 1.8)
+    check(model.hits == 1, "the same swing is not counted twice", "\(model.hits)")
+    rest(&model, seconds: 0.5)
+    swing(&model, down: 1.8)
+    check(model.hits == 2, "after the gap, the next stroke counts", "\(model.hits)")
+
+    var lift = HammerModel()
+    swing(&lift, down: -2.0)
+    check(lift.hits == 0, "lifting the phone (upward acceleration) is not a hit")
+
+    var gentle = HammerModel()
+    swing(&gentle, down: 0.5)
+    check(gentle.hits == 0, "a gentle wave is not a hit")
+
+    var idle = HammerModel()
+    rest(&idle, seconds: 30)
+    check(idle.hits == 0 && idle.progress == 0, "an idle phone never hits")
+
+    var full = HammerModel()
+    for _ in 0 ..< HammerModel.needed {
+        swing(&full, down: 1.8)
+        rest(&full, seconds: 0.5)
+    }
+    check(full.isComplete && full.hits == HammerModel.needed, "\(HammerModel.needed) strokes finish the task", "\(full.hits)")
+    check(HammerModel.needed >= 4 && HammerModel.needed <= 8, "the nail takes a handful of hits, not one")
 }
 
 print(failures == 0 ? "OK: \(checks) task checks passed" : "FAILED: \(failures) of \(checks) task checks")

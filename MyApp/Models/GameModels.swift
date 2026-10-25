@@ -22,7 +22,7 @@ struct Grid: Codable, Hashable {
 }
 
 enum TaskType: String, Codable, Hashable {
-    case shake, tilt, dial, hold, gesture
+    case shake, tilt, dial, hold, gesture, hammer
 }
 
 enum StationKind: String, Codable, Hashable {

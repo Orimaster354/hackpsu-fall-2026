@@ -27,7 +27,18 @@ function sweepInput(body,grid){
   return {frames,intrinsics:Object.fromEntries(['fx','fy','cx','cy','width','height'].map(key=>[key,k[key]]))};
 }
 const spacing=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)>=2-1e-9;
-const TASKS=['hold','tilt','dial','shake'];
+const TASKS=['hold','tilt','dial','shake','gesture','hammer'];
+// No two task stations get the same task. The first station keeps its type; a later duplicate takes the first type
+// nobody has used, in TASKS order. Six types cover the three task stations. The fix station is not a motion task.
+function uniqueTaskTypes(picks){
+  const used=new Set();
+  for(const pick of picks){
+    if(pick.kind!=='task')continue;
+    if(used.has(pick.task)){const free=TASKS.find(type=>!used.has(type));if(free)pick.task=free;}
+    used.add(pick.task);
+  }
+  return picks;
+}
 function selectStations(notes,suggestions,emergency){
   const picks=[];const used=new Set();
   const add=(note,kind,task)=>{
@@ -42,6 +53,7 @@ function selectStations(notes,suggestions,emergency){
     if(picks.length===4)break;
   }
   if(picks.length && !picks.some(p=>p.kind==='fix')){picks.at(-1).kind='fix';picks.at(-1).task='hold';}
+  uniqueTaskTypes(picks);
   return picks.map(note=>({id:`note-${note.id.split(':')[1]}`,name:note.context?.[0]?.label?`Note by ${note.context[0].label}`:'Wall note',
     tile:note.tile,kind:note.kind,task:note.task}));
 }

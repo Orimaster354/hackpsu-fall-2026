@@ -1,5 +1,6 @@
 import ARKit
 import Observation
+import RealityKit
 
 /// Owns the one `ARSession`: world tracking, errors, the host scan's frame feed and world-map capture,
 /// and (Phase 4) loading a map, the 20 s relocalization timeout and live tile reporting.
@@ -48,6 +49,17 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     var iconsVisible: Bool {
         positionMode == .ar && isRunning && !isInterrupted && reliablePosition != nil && playerAlive
     }
+
+    /// The one RealityKit view for the session. Every screen that draws on the AR camera (the host scan, the task
+    /// prop) must use this same view instead of creating its own. RealityKit pauses the ARSession when an ARView
+    /// that was attached to it goes away, so a throwaway view per task dropped tracking after every task. This one
+    /// lives as long as the session, so nothing ever pauses it from outside.
+    @ObservationIgnored lazy var arView: ARView = {
+        let view = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
+        view.session = session          // makes the view the session delegate...
+        session.delegate = self         // ...so the tracking code takes it straight back
+        return view
+    }()
 
     override init() {
         super.init()

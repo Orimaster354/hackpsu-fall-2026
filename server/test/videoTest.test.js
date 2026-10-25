@@ -126,18 +126,18 @@ test('local dashboard accepts two MP4 uploads, streams progress and rejects inva
   const url = base + '/api/dashboard/video-test';
   assert.equal((await (await fetch(url)).json()).model, 'test-model');
   assert.equal((await fetch(url, { method: 'POST', body: form() })).status, 400);
-  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1', Origin: 'https://other.example' }, body: form() })).status, 400);
-  const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form() });
+  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1', Origin: 'https://other.example' }, body: form() })).status, 400);
+  const response = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: form() });
   const events = (await response.text()).trim().split('\n').map((line) => JSON.parse(line));
   assert.ok(events.some((event) => event.message === 'Analyzing test clips'));
   assert.equal(events.at(-1).type, 'result'); assert.equal(calls, 1);
   const single = form(); single.delete('edge');
-  const one = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: single });
+  const one = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: single });
   assert.equal(one.status, 200); assert.equal((await one.text()).trim().split('\n').map(JSON.parse).at(-1).type, 'result');
   const missing = form(); missing.delete('overview');
-  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: missing })).status, 400);
+  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: missing })).status, 400);
   const bad = form(); bad.set('edge', new Blob(['not really an mp4 video'], { type: 'video/mp4' }), 'bad.mp4');
-  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: bad })).status, 400);
+  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: bad })).status, 400);
   assert.equal(calls, 2);
 });
 
@@ -160,11 +160,11 @@ test('MOV uploads need no browser-provided duration and the server enforces 120 
   const url = `http://127.0.0.1:${address.port}/api/dashboard/video-test`;
   const body = new FormData(); body.set('detector', 'gemini');
   for (const pass of ['overview', 'edge']) body.set(pass, new Blob([movie('qt  ')], { type: 'application/octet-stream' }), `${pass}.MOV`);
-  const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const response = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   assert.equal(response.status, 200);
   assert.equal((await response.text()).trim().split('\n').map(JSON.parse).at(-1).type, 'result');
   body.set('edge', new Blob([movie('qt  ', 121)], { type: 'video/quicktime' }), 'long.mov');
-  const rejected = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const rejected = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   assert.equal(rejected.status, 400); assert.match(await rejected.text(), /INVALID_VIDEO/); assert.equal(calls, 1);
 });
 
@@ -177,8 +177,8 @@ test('one video test at a time and cancellation reaches the detector', async (t)
   const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
   const url = `http://127.0.0.1:${address.port}/api/dashboard/video-test`;
   const controller = new AbortController();
-  const first = fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form(), signal: controller.signal }).then((response) => response.text()).catch(() => {});
+  const first = fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: form(), signal: controller.signal }).then((response) => response.text()).catch(() => {});
   await started;
-  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form() })).status, 409);
+  assert.equal((await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: form() })).status, 409);
   controller.abort(); await stopped; await first;
 });

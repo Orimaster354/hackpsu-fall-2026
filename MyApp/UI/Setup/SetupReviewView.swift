@@ -75,13 +75,15 @@ struct SetupReviewView: View {
     }
 
     private func newStation(at tile: MapTile) -> MapStation {
-        let kinds: [TaskKind] = [.hold, .tilt, .dial, .shake]
         let count = session.taskStations.count
+        // A new station gets a task no other station has, so a room never repeats a challenge.
+        let used = Set(session.taskStations.map { $0.task })
+        let task = TaskKind.allCases.first { !used.contains($0) } ?? TaskKind.allCases[count % TaskKind.allCases.count]
         return MapStation(
             id: "u-\(UUID().uuidString.prefix(6).lowercased())",
             name: "Station \(count + 1)",
             tile: tile,
-            task: kinds[count % kinds.count],
+            task: task,
             kind: .task
         )
     }

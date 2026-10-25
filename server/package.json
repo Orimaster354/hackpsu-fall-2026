@@ -1,5 +1,5 @@
 {
-  "name": "roomshift-server",
+  "name": "blindspot-server",
   "version": "0.1.0",
   "private": true,
   "description": "In-memory WebSocket lobby for the four-player demo",

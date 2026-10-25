@@ -17,9 +17,8 @@ struct ARCameraView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> ARView {
-        let view = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
-        view.session = tracking.session
-        tracking.session.delegate = tracking
+        // The session's one shared view, never a new one: see ARTrackingSession.arView.
+        let view = tracking.arView
         view.scene.addAnchor(context.coordinator.root)
         let root = context.coordinator.root
         // Hide stale overlays even if ARKit stops delivering frames without an error callback.

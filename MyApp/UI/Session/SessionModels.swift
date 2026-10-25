@@ -80,7 +80,7 @@ struct MapGrid: Equatable {
 
 /// docs: `TaskType`. Raw values are the wire strings.
 enum TaskKind: String, CaseIterable {
-    case shake, tilt, dial, hold, gesture
+    case shake, tilt, dial, hold, gesture, hammer
 }
 
 /// docs: `Station`.

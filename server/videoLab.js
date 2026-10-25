@@ -54,7 +54,7 @@ function createVideoDetector({ apiKey = process.env.GEMINI_API_KEY,
         const start = await call(`${API}/upload/v1beta/files`, { method: 'POST', headers: {
           'content-type': 'application/json', 'X-Goog-Upload-Protocol': 'resumable', 'X-Goog-Upload-Command': 'start',
           'X-Goog-Upload-Header-Content-Length': String(video.bytes.length), 'X-Goog-Upload-Header-Content-Type': mimeType,
-        }, body: JSON.stringify({ file: { display_name: `roomshift-${video.pass}` } }) });
+        }, body: JSON.stringify({ file: { display_name: `blindspot-${video.pass}` } }) });
         const uploadUrl = start.headers.get('x-goog-upload-url');
         requireAction(uploadUrl && new URL(uploadUrl).origin === API, 'GEMINI_INVALID_RESPONSE', 'Invalid upload destination from Gemini.');
         let file = (await (await call(uploadUrl, { method: 'POST', headers: {
@@ -163,7 +163,7 @@ function createVideoTestHandler(options) {
             yoloe: { configured: yoloDetector.configured, model: yoloDetector.model, quality: yoloDetector.quality || null } },
           maxVideoBytes: MAX_VIDEO_BYTES, busy })); return;
       }
-      requireAction(request.method === 'POST' && request.headers['x-roomshift-video-test'] === '1', 'INVALID_REQUEST', 'Use the video test dashboard.');
+      requireAction(request.method === 'POST' && request.headers['x-blindspot-video-test'] === '1', 'INVALID_REQUEST', 'Use the video test dashboard.');
       requireAction(!request.headers.origin || request.headers.origin === `http://${request.headers.host}`, 'INVALID_REQUEST', 'Use the local dashboard origin.');
       requireAction(!busy, 'VIDEO_TEST_BUSY', 'Another video test is running. Wait or cancel it.');
       requireAction(Number(request.headers['content-length'] || 0) <= MAX_BODY_BYTES, 'VIDEO_TOO_LARGE', 'Each video must be at most 512 MiB.');

@@ -265,7 +265,7 @@ if (require.main === module) {
     const appOptions = process.argv.includes('--manual-fixture')
       ? { manualSetup: JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'manual-setup.json'), 'utf8')) } : {};
     createAppServer(appOptions).listen(port).then((address) => {
-      console.log(`ROOMSHIFT server listening on 0.0.0.0:${address.port}`);
+      console.log(`Blindspot server listening on 0.0.0.0:${address.port}`);
       if (appOptions.manualSetup) console.log('Developer manual fixture enabled; host must confirm setup.');
     }).catch((error) => {
       console.error(error);

@@ -192,7 +192,7 @@ $('test-form').addEventListener('submit', async (event) => {
     form.append('detector', engine());
     form.append('reasoning', $('reasoning').checked && detectorConfig.reasoning?.configured ? '1' : '0');
     for (const pass of passes) if (clips[pass]?.file) form.append(pass, clips[pass].file);
-    const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
+    const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
     const consume = (line) => {
       if (!line.trim()) return;
@@ -221,7 +221,7 @@ $('edge-clear').addEventListener('click', () => { $('edge').value = ''; $('edge'
 $('detector').addEventListener('change', () => { result = null; $('download').disabled = true; selectDetector(); });
 $('download').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
-  const link = document.createElement('a'); link.href = url; link.download = 'roomshift-video-detections.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const link = document.createElement('a'); link.href = url; link.download = 'blindspot-video-detections.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 window.addEventListener('pagehide', () => { controller?.abort(); for (const clip of Object.values(clips)) if (clip.url) URL.revokeObjectURL(clip.url); });
 (async () => {

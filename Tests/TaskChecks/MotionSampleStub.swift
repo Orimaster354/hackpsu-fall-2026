@@ -9,4 +9,5 @@ struct MotionSample {
     var userAcceleration: Double
     var rotationRate: Double
     var dt: Double
+    var accelerationAlongGravity: Double = 0
 }

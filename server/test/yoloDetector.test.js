@@ -102,19 +102,19 @@ test('dashboard can choose local YOLOE without a configured Gemini key', async (
   movie.writeUInt32BE(1000, 28); movie.writeUInt32BE(3000, 32);
   const body = new FormData(); // Omitting detector now defaults to the primary local YOLOE model.
   for (const pass of ['overview', 'edge']) body.set(pass, new Blob([header, movie], { type: 'video/mp4' }), `${pass}.mp4`);
-  const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const response = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   assert.equal(response.status, 200); assert.match(await response.text(), /yoloe-26s-seg.pt/); assert.equal(calls, 1);
   assert.equal(planningCalls, 0);
   body.set('reasoning', '1');
-  const planned = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const planned = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   const plannedEvents = (await planned.text()).trim().split('\n').map(JSON.parse);
   assert.equal(plannedEvents.at(-1).planning.status, 'needs_geometry');
   failPlanning = true;
-  const failed = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const failed = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   const retained = (await failed.text()).trim().split('\n').map(JSON.parse).at(-1);
   assert.equal(retained.type, 'result'); assert.equal(retained.planning.status, 'unavailable');
   assert.equal(retained.passes.length, 2); assert.equal(planningCalls, 2);
   body.set('detector', 'unknown');
-  const bad = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
+  const bad = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
   assert.equal(bad.status, 400); assert.match(await bad.text(), /INVALID_DETECTOR/);
 });

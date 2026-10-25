@@ -1,6 +1,6 @@
-# IRL Among Us (HackPSU Fall 2026)
+# Blindspot (HackPSU Fall 2026)
 
-An Among Us-inspired game played in a real room on four iPhones. Players walk to real task stations, do motion-based tasks, and try to find the impostor.
+Blindspot is a social-deduction game, inspired by Among Us, played in a real room on four iPhones. Players walk to real task stations, do motion-based tasks, and try to find the impostor.
 
 ## MVP
 - Host records a perimeter pose walk, then a sweep of JPEG frames with matching poses/intrinsics, and saves an ARWorldMap. The app does no geometry.

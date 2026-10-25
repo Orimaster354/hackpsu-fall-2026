@@ -1,4 +1,4 @@
-# IRL Among Us: Interview Spec (HackPSU 2026, 24h)
+# Blindspot: Interview Spec (HackPSU 2026, 24h)
 
 Status: interview complete, pending user approval. No code or docs written yet.
 

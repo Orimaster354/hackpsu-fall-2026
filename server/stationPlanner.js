@@ -4,7 +4,7 @@ const { RoomError, requireAction } = require('./errors');
 const { DEFAULT_GEMINI_MODEL } = require('./gemini');
 const { NOTE } = require('./yoloDetector');
 const PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/station-planning.md'), 'utf8');
-const TASKS = ['hold', 'tilt', 'dial', 'shake'];
+const TASKS = ['hold', 'tilt', 'dial', 'shake', 'gesture', 'hammer'];
 
 function planningCandidates(result) {
   return result.passes.flatMap((pass) => pass.detections.map((detection, index) => ({
