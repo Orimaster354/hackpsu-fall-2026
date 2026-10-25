@@ -4,7 +4,7 @@ import Foundation
 // and the implemented server (server/rooms.js, server/game.js). Do not rename fields here
 // without updating the doc and telling the other owners.
 
-struct Tile: Codable, Hashable {
+nonisolated struct Tile: Codable, Hashable, Sendable {
     var x: Int
     var y: Int
 }
