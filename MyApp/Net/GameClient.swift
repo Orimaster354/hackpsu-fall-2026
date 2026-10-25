@@ -129,6 +129,13 @@ final class GameClient {
         transmit(message, on: socket, generation: generation)
     }
 
+    /// The server accepts a tile change only after two consecutive identical reports (including manual
+    /// picks), so position updates go through here instead of `send(.tile(...))`.
+    func reportTile(_ tile: Tile, source: TileSource) {
+        send(.tile(tile, source: source))
+        send(.tile(tile, source: source))
+    }
+
     private func transmit(_ message: ClientMessage, on socket: URLSessionWebSocketTask, generation gen: Int) {
         let text: String
         do { text = try WireCodec.encode(message) }
