@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "start:manual": "node index.js --manual-fixture",
     "test": "node --test",
     "smoke": "node tools/fakeClients.js",
     "round": "node tools/fakeClient.js",

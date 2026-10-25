@@ -4,7 +4,6 @@ const { RoomError } = require('./errors');
 const { Game } = require('./game');
 
 const MAX_PLAYERS = 4;
-const DEFAULT_GRID = Object.freeze({ cols: 5, rows: 5, tileSize: 1.0, blocked: [] });
 const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function roomCode() {
@@ -25,15 +24,17 @@ function send(socket, message) {
 }
 
 class Room {
-  constructor(code, options) {
+  constructor(code, options = {}) {
     this.code = code;
     this.hostId = null;
     this.players = new Map();
-    this.grid = { ...DEFAULT_GRID, blocked: [] };
+    this.grid = null;
+    this.setupConfirmed = false;
     this.stations = [];
     this.hasMap = false;
     this.phase = 'lobby';
     this.game = new Game(this, options);
+    if (options.manualSetup) this.game.applySetup(options.manualSetup);
   }
 
   addPlayer(name, socket, playerId) {
@@ -107,11 +108,21 @@ class Room {
       grid: this.grid,
       stations: this.stations,
       hasMap: this.hasMap,
+      setupConfirmed: this.setupConfirmed,
     };
   }
 
   broadcastLobby() {
     this.broadcast(this.lobbyMessage());
+  }
+
+  setupMessage() {
+    return { t: 'setup', grid: this.grid, stations: this.stations, setupConfirmed: this.setupConfirmed };
+  }
+
+  broadcastSetup() {
+    this.broadcast(this.setupMessage());
+    this.broadcastLobby();
   }
 
   sendTo(player, message) {

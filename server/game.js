@@ -62,19 +62,53 @@ class Game {
     this.room.broadcast({ t: 'state', ...this.state() });
   }
 
-  setup(player, message) {
+  // Internal producer API for the future scan processor and explicit developer fixtures.
+  // Clients cannot supply room geometry through a WebSocket event.
+  applySetup(message) {
     this.phase('lobby');
-    this.host(player);
+    requireAction(!this.room.setupConfirmed, 'SETUP_LOCKED', 'Confirmed setup cannot be replaced.');
     const setup = validateRoomSetup(message.grid, message.stations);
     this.room.grid = setup.grid;
     this.room.stations = setup.stations;
     for (const member of this.room.players.values()) { member.tile = null; member.pendingTile = null; }
-    this.room.broadcastLobby();
+    this.room.setupConfirmed = false;
+    this.room.broadcastSetup();
+  }
+
+  editStation(player, message) {
+    this.phase('lobby');
+    this.host(player);
+    requireAction(this.room.grid, 'SETUP_MISSING', 'Wait for a server-generated setup.');
+    requireAction(!this.room.setupConfirmed, 'SETUP_LOCKED', 'Confirmed stations cannot be edited.');
+    const station = message.station || (message.delete === true ? { id: message.id, delete: true } : null);
+    requireAction(station && typeof station.id === 'string', 'INVALID_STATION', 'Provide a station object or deletion.');
+    const existing = this.room.stations.find((item) => item.id === station.id);
+    requireAction(existing?.kind !== 'emergency' && station.kind !== 'emergency', 'EMERGENCY_LOCKED', 'The emergency station is server-controlled.');
+    let stations;
+    if (station.delete === true) {
+      requireAction(existing, 'INVALID_STATION', 'Station does not exist.');
+      stations = this.room.stations.filter((item) => item.id !== station.id);
+    } else {
+      stations = existing ? this.room.stations.map((item) => item.id === station.id ? station : item)
+        : [...this.room.stations, station];
+    }
+    this.room.stations = validateRoomSetup(this.room.grid, stations).stations;
+    this.room.broadcastSetup();
+  }
+
+  confirmSetup(player) {
+    this.phase('lobby');
+    this.host(player);
+    requireAction(this.room.grid, 'SETUP_MISSING', 'Wait for a server-generated setup.');
+    validateRoomSetup(this.room.grid, this.room.stations);
+    this.room.setupConfirmed = true;
+    this.room.broadcastSetup();
   }
 
   start(player) {
     this.phase('lobby');
     this.host(player);
+    requireAction(this.room.setupConfirmed, 'SETUP_NOT_CONFIRMED', 'The host must confirm setup before starting.');
     const players = [...this.room.players.values()];
     requireAction(players.length === 4 && this.room.publicPlayers().every((member) => member.connected),
       'NEED_FOUR_PLAYERS', 'Four connected players are required.');
@@ -170,7 +204,8 @@ class Game {
   emergency(player) {
     this.phase('playing');
     this.living(player);
-    requireAction(sameTile(player.tile, { x: 0, y: 0 }), 'EMERGENCY_TILE', 'Go to emergency tile (0,0).');
+    const station = this.room.stations.find((item) => item.kind === 'emergency');
+    requireAction(station && sameTile(player.tile, station.tile), 'EMERGENCY_TILE', 'Go to the configured emergency station.');
     requireAction(!player.usedEmergency && this.emergencies < 3, 'EMERGENCY_USED', 'Emergency meeting allowance used.');
     player.usedEmergency = true;
     this.emergencies += 1;
@@ -238,7 +273,7 @@ class Game {
   }
 
   handle(player, message) {
-    const actions = { setRoom: 'setup', start: 'start', tile: 'tile', taskDone: 'taskDone', kill: 'kill',
+    const actions = { editStation: 'editStation', confirmSetup: 'confirmSetup', start: 'start', tile: 'tile', taskDone: 'taskDone', kill: 'kill',
       report: 'report', emergency: 'emergency', vote: 'vote', sabotage: 'sabotage', fix: 'fix' };
     const action = Object.hasOwn(actions, message.t) && actions[message.t];
     requireAction(action, 'UNKNOWN_EVENT', 'Unknown game event.');
