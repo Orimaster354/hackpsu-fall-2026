@@ -102,6 +102,24 @@ for (const pass of passes) {
 }
 window.addEventListener('resize', () => passes.forEach(draw));
 
+function addNoteThumbnail(button, detection) {
+  if (!detection.frameJpeg) return;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'note-crop'; canvas.width = 160; canvas.height = 100;
+  canvas.setAttribute('aria-label', 'Close-up of this detected note');
+  button.prepend(canvas);
+  const image = new Image();
+  image.onload = () => {
+    const [x, y, w, h] = detection.box;
+    const left = Math.max(0, x-w*0.5)*image.width, top = Math.max(0, y-h*0.5)*image.height;
+    const width = Math.min(1, x+w*1.5)*image.width-left, height = Math.min(1, y+h*1.5)*image.height-top;
+    const scale = Math.min(canvas.width/width, canvas.height/height);
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#080e16'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, left, top, width, height, (canvas.width-width*scale)/2, (canvas.height-height*scale)/2, width*scale, height*scale);
+  };
+  image.src = `data:image/jpeg;base64,${detection.frameJpeg}`;
+}
+
 function showResult(data) {
   result = data;
   let total = 0;
@@ -118,6 +136,8 @@ function showResult(data) {
       button.dataset.candidateId = `${passResult.pass}:${index}`;
       const context = detection.context || [];
       button.textContent = `${passResult.pass}:${index} · ${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''} · ${context.length ? context.map((item) => `near ${item.label} (image gap ${item.imageGap.toFixed(3)})`).join(', ') : 'wall context unknown'}`;
+      button.textContent += ` · seen in ${detection.observationCount ?? 1} sampled frame(s)`;
+      addNoteThumbnail(button, detection);
       button.addEventListener('click', () => {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-pressed', 'true');

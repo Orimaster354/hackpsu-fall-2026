@@ -30,6 +30,9 @@ function validateYoloResult(result, videos) {
         && validBox(box),
       'YOLOE_INVALID_RESPONSE', 'YOLOE returned invalid labels, timestamps or boxes.');
       const safe = { label: item.label, t: item.t, box, confidence: item.confidence, frameIndex: item.frameIndex };
+      requireAction(item.observationCount === undefined || (Number.isInteger(item.observationCount)
+        && item.observationCount >= 1 && item.observationCount <= 120), 'YOLOE_INVALID_RESPONSE', 'Invalid observation count.');
+      safe.observationCount = item.observationCount ?? 1;
       requireAction(Array.isArray(item.context) && item.context.length <= 6, 'YOLOE_INVALID_RESPONSE', 'Missing or oversized same-frame wall context.');
       safe.context = item.context.map((element) => {
         requireAction(CLASSES.includes(element?.label) && element.label !== NOTE && validBox(element.box)

@@ -8,6 +8,29 @@ spec.loader.exec_module(worker)
 
 
 class OverlapTests(unittest.TestCase):
+    def test_scene_alignment_links_moving_notes_without_merging_distinct_notes(self):
+        import cv2
+        import numpy as np
+        rng = np.random.default_rng(23)
+        before = rng.integers(0, 256, (320, 480), dtype=np.uint8)
+        after = cv2.warpAffine(before, np.float32([[1, 0, 55], [0, 1, 12]]), (480, 320))
+        tracks = []
+        for x in [0.3, 0.5]:
+            worker.remember(tracks, {"label": worker.NOTE, "box": [x, 0.4, 0.04, 0.04], "t": 0, "confidence": 0.6})
+        self.assertTrue(worker.align_tracks(tracks, before, after, 1))
+        for x in [0.3, 0.5]:
+            worker.remember(tracks, {"label": worker.NOTE, "box": [x+55/480, 0.4+12/320, 0.04, 0.04], "t": 1, "confidence": 0.9})
+        notes = worker.final_notes(tracks)
+        self.assertEqual(len(notes), 2)
+        self.assertEqual([item["observationCount"] for item in notes], [2, 2])
+        self.assertEqual([item["t"] for item in notes], [1, 1])
+
+    def test_textureless_frames_do_not_invent_camera_alignment(self):
+        import numpy as np
+        image = np.zeros((240, 320), dtype=np.uint8)
+        self.assertFalse(worker.align_tracks([], None, image, 1))
+        self.assertFalse(worker.align_tracks([], image, image, 1))
+
     def test_same_frame_triplicate_keeps_highest_score_before_context(self):
         notes = [
             {"label": worker.NOTE, "box": [0.2, 0.2, 0.1, 0.1], "confidence": 0.6},
