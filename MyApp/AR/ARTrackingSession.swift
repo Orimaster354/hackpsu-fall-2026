@@ -1,7 +1,8 @@
 import ARKit
 import Observation
 
-/// Owns one coordinate frame for both host passes, map handoff and live tile tracking.
+/// Owns the one `ARSession`: world tracking, errors, the host scan's frame feed and world-map capture,
+/// and (Phase 4) loading a map, the 20 s relocalization timeout and live tile reporting.
 @Observable
 final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     @ObservationIgnored let session = ARSession()
@@ -11,42 +12,33 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     private(set) var isInterrupted = false
     private(set) var isRunning = false
     private(set) var resetCount = 0
+    /// Counts interruptions and session failures. The host scan starts over whenever this changes, because
+    /// poses recorded before and after would no longer share one world frame.
+    private(set) var interruptionCount = 0
+    private(set) var worldMappingStatus: ARFrame.WorldMappingStatus = .notAvailable
     static var isSupported: Bool { ARWorldTrackingConfiguration.isSupported }
 
-    enum CaptureStage { case overviewReady, overviewRecording, overviewSaving, edgeReady, edgeRecording, edgeSaving, mapReady, mapSaving, ready, uploading, uploaded }
     enum PositionMode: String { case unlocalized, relocalizing, ar, manual }
-    private(set) var captureStage: CaptureStage = .overviewReady
     private(set) var positionMode: PositionMode = .unlocalized
-    private(set) var captureStartedAt: TimeInterval?
-    private(set) var overviewArtifact: CaptureArtifact?
-    private(set) var edgeArtifact: CaptureArtifact?
-    private(set) var mapURL: URL?
-    private(set) var uploadStatus = ""
-    private(set) var uploadSeconds: TimeInterval?
-    private(set) var isDownloadingMap = false
     private(set) var currentTile: SIMD2<Int>?
     private(set) var stationIcons: [ARStationIcon] = []
     private(set) var playerAlive = true
     private(set) var lightsOut = false
     private(set) var grid: ServerGridTracking?
 
+    /// Called on the main thread for every frame while the session runs, with the frame still alive for the call.
+    /// Copy out what you need; never keep the `ARFrame` (ARKit starves its camera buffer pool if you do).
+    @ObservationIgnored var frameHandler: ((ARFrame) -> Void)?
     /// D wires this to GameClient's documented tile message. It receives no raw poses.
     @ObservationIgnored var onTileReport: ((_ x: Int, _ y: Int, _ source: String) -> Void)?
     /// B presents the existing manual tile picker in response to this callback/state.
     @ObservationIgnored var onManualModeRequested: (() -> Void)?
-    @ObservationIgnored private var recorder: CaptureRecorder?
-    @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var relocalizationTimeout: Task<Void, Never>?
     @ObservationIgnored private var tileTimer: Timer?
-    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var minimumFrameTimestamp: TimeInterval = 0
     @ObservationIgnored private var lastPublish: TimeInterval = 0
     private static let publishInterval: TimeInterval = 1.0 / 15.0
 
-    var isRecording: Bool { captureStage == .overviewRecording || captureStage == .edgeRecording }
-    var isBusy: Bool {
-        isDownloadingMap || isRecording || [.overviewSaving, .edgeSaving, .mapSaving, .uploading].contains(captureStage)
-    }
     var iconsVisible: Bool {
         positionMode == .ar && isRunning && !isInterrupted && reliablePosition != nil && playerAlive
     }
@@ -57,6 +49,10 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         session.delegate = self
     }
 
+    // MARK: Lifecycle
+
+    /// Starts world tracking. The world origin is wherever the phone is now. The host scan calls this once
+    /// and never again until it is over; calling `start` or `reset` mid-scan would move the origin.
     func start() {
         guard !isRunning else { return }
         guard Self.isSupported else {
@@ -73,10 +69,6 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     }
 
     func pause() {
-        if isRecording || captureStage == .overviewSaving || captureStage == .edgeSaving || captureStage == .mapSaving {
-            invalidateCapture()
-            lastError = "Capture interrupted. Record both passes again in one uninterrupted session."
-        }
         session.pause()
         isRunning = false; quality = .notAvailable; pose = nil; currentTile = nil
         tileTimer?.invalidate(); tileTimer = nil
@@ -84,9 +76,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         if positionMode == .ar { positionMode = .relocalizing }
     }
 
+    /// Discards the world map and starts a new coordinate frame at the phone's current pose.
     func reset() {
-        guard captureStage != .uploading else { return }
-        invalidateCapture()
         grid = nil; stationIcons = []; currentTile = nil
         relocalizationTimeout?.cancel(); relocalizationTimeout = nil
         positionMode = .unlocalized
@@ -99,163 +90,29 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         startTileTimer()
     }
 
-    // MARK: Host capture
+    // MARK: Host scan: world map
 
-    func startPass(_ pass: CapturePass) {
-        guard isRunning, !isInterrupted, reliablePosition != nil, !isBusy,
-              let frame = session.currentFrame else {
-            lastError = "Wait for healthy tracking before recording."
-            return
-        }
-        guard (pass == .overview && captureStage == .overviewReady)
-                || (pass == .edge && captureStage == .edgeReady) else { return }
-        do {
-            recorder = try CaptureRecorder(sourceWidth: CVPixelBufferGetWidth(frame.capturedImage),
-                                           sourceHeight: CVPixelBufferGetHeight(frame.capturedImage),
-                                           intrinsics: frame.camera.intrinsics)
-            captureStage = pass == .overview ? .overviewRecording : .edgeRecording
-            captureStartedAt = ProcessInfo.processInfo.systemUptime
-            lastError = nil
-        } catch { lastError = error.localizedDescription }
-    }
-
-    func finishPass() {
-        guard isRecording, let recorder else { return }
-        let pass: CapturePass = captureStage == .overviewRecording ? .overview : .edge
-        captureStage = pass == .overview ? .overviewSaving : .edgeSaving
-        captureStartedAt = nil
-        let epoch = generation
-        operation = Task { [weak self] in
-            do {
-                let artifact = try await recorder.finish()
-                guard let self, !Task.isCancelled, epoch == generation else { return }
-                self.recorder = nil
-                if pass == .overview {
-                    overviewArtifact = artifact
-                    captureStage = .edgeReady
-                } else {
-                    edgeArtifact = artifact
-                    captureStage = .mapReady
-                    await saveMapAfterCapture(epoch: epoch)
-                }
-            } catch {
-                guard let self, !Task.isCancelled, epoch == generation else { return }
-                self.recorder?.cancel(); self.recorder = nil
-                captureStage = pass == .overview ? .overviewReady : .edgeReady
-                lastError = error.localizedDescription
+    /// Snapshot of the running session's ARWorldMap, archived with secure coding. It describes the same world
+    /// frame as every pose recorded since `start`, which is why the scan takes it last, in the same session.
+    func captureWorldMap() async throws -> Data {
+        guard isRunning, !isInterrupted else { throw ARCaptureError.invalid("The AR session is not running.") }
+        let map: ARWorldMap = try await withCheckedThrowingContinuation { continuation in
+            session.getCurrentWorldMap { map, error in
+                if let map { continuation.resume(returning: map) }
+                else { continuation.resume(throwing: error ?? ARCaptureError.invalid("The world map is not available yet. Look around the room and try again.")) }
             }
         }
+        return try NSKeyedArchiver.archivedData(withRootObject: map, requiringSecureCoding: true)
     }
 
-    func cancelCapture() {
-        guard captureStage != .uploading else { return }
-        invalidateCapture()
-    }
+    // MARK: Joiner map and manual fallback (Phase 4)
 
-    private func invalidateCapture() {
-        generation += 1
-        operation?.cancel(); operation = nil
-        let discardedFiles = Set([recorder?.directory, overviewArtifact?.directory,
-                                  edgeArtifact?.directory, mapURL].compactMap { $0 })
-        recorder?.cancel(); recorder = nil
-        overviewArtifact = nil; edgeArtifact = nil; mapURL = nil
-        captureStartedAt = nil; captureStage = .overviewReady
-        uploadStatus = ""; uploadSeconds = nil; isDownloadingMap = false
-        // These URLs are generated by this capture flow in the app's temporary directory.
-        for file in discardedFiles { try? FileManager.default.removeItem(at: file) }
-    }
-
-    func retrySaveMap() {
-        guard captureStage == .mapReady else { return }
-        let epoch = generation
-        operation = Task { [weak self] in await self?.saveMapAfterCapture(epoch: epoch) }
-    }
-
-    private func saveMapAfterCapture(epoch: Int) async {
-        guard edgeArtifact != nil, overviewArtifact != nil, isRunning, reliablePosition != nil else {
-            lastError = "Wait for healthy tracking, then retry saving the map."
-            return
-        }
-        captureStage = .mapSaving
-        do {
-            let map: ARWorldMap = try await withCheckedThrowingContinuation { continuation in
-                session.getCurrentWorldMap { map, error in
-                    if let map { continuation.resume(returning: map) }
-                    else { continuation.resume(throwing: error ?? ARCaptureError.invalid("World map unavailable. Scan more of the room and retry.")) }
-                }
-            }
-            guard !Task.isCancelled, epoch == generation else { return }
-            let data = try NSKeyedArchiver.archivedData(withRootObject: map, requiringSecureCoding: true)
-            let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".arworldmap")
-            try data.write(to: file, options: .atomic)
-            mapURL = file; captureStage = .ready; positionMode = .ar
-            relocalizationTimeout?.cancel(); relocalizationTimeout = nil
-            lastError = nil
-        } catch {
-            guard !Task.isCancelled, epoch == generation else { return }
-            captureStage = .mapReady; lastError = error.localizedDescription
-        }
-    }
-
-    func uploadCapture(baseURL: URL, room: String) {
-        guard captureStage == .ready, let overviewArtifact, let edgeArtifact, let mapURL else { return }
-        let transport = ARCaptureTransport(baseURL: baseURL, room: room.uppercased())
-        captureStage = .uploading; lastError = nil
-        let started = ProcessInfo.processInfo.systemUptime
-        let epoch = generation
-        operation = Task { [weak self] in
-            guard let self else { return }
-            do {
-                uploadStatus = "Uploading overview…"
-                try await transport.upload(overviewArtifact, pass: .overview)
-                uploadStatus = "Uploading edge walk…"
-                try await transport.upload(edgeArtifact, pass: .edge)
-                uploadStatus = "Uploading world map…"
-                try await transport.uploadMap(mapURL)
-                uploadSeconds = ProcessInfo.processInfo.systemUptime - started
-                uploadStatus = "Requesting server processing…"
-                try await transport.process()
-                guard !Task.isCancelled, epoch == generation else { return }
-                captureStage = .uploaded
-                uploadStatus = "Uploaded. Waiting for setup from GameClient."
-            } catch {
-                guard !Task.isCancelled, epoch == generation else { return }
-                captureStage = .ready; uploadStatus = "Upload failed; ready to retry."
-                lastError = error.localizedDescription
-            }
-        }
-    }
-
-    // MARK: Joiner map and manual fallback
-
-    func downloadMap(baseURL: URL, room: String) {
-        guard !isBusy else { return }
-        operation?.cancel()
-        isDownloadingMap = true; positionMode = .unlocalized; currentTile = nil; lastError = nil
-        let transport = ARCaptureTransport(baseURL: baseURL, room: room.uppercased())
-        let epoch = generation
-        operation = Task { [weak self] in
-            do {
-                let data = try await transport.downloadMap()
-                guard let self, !Task.isCancelled, epoch == generation else { return }
-                isDownloadingMap = false
-                try loadWorldMap(data)
-            } catch {
-                guard let self, !Task.isCancelled, epoch == generation else { return }
-                isDownloadingMap = false
-                lastError = error.localizedDescription
-                useManualMode()
-            }
-        }
-    }
-
-    /// D may call this directly after fetching the documented binary endpoint.
+    /// D calls this after fetching the map with `GameClient.downloadMap()`.
     func loadWorldMap(_ data: Data) throws {
-        guard Self.isSupported, !isBusy else { throw ARCaptureError.invalid("Stop capture before loading a world map.") }
+        guard Self.isSupported else { throw ARCaptureError.invalid("World tracking is unavailable on this device.") }
         guard let map = try NSKeyedUnarchiver.unarchivedObject(ofClass: ARWorldMap.self, from: data) else {
             throw ARCaptureError.invalid("The downloaded world map is invalid.")
         }
-        invalidateCapture()
         grid = nil; stationIcons = []; currentTile = nil
         minimumFrameTimestamp = ProcessInfo.processInfo.systemUptime
         pose = nil; quality = .relocalizing; isInterrupted = false; lastError = nil
@@ -280,9 +137,6 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     }
 
     func useManualMode() {
-        if isDownloadingMap {
-            operation?.cancel(); isDownloadingMap = false
-        }
         relocalizationTimeout?.cancel(); relocalizationTimeout = nil
         positionMode = .manual; currentTile = nil
         onManualModeRequested?()
@@ -338,15 +192,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
         let sample = TrackedPose(position: position, quality: TrackingQuality(frame.camera.trackingState), timestamp: frame.timestamp)
         MainActor.assumeIsolated {
             guard isRunning, !isInterrupted, frame.timestamp >= minimumFrameTimestamp else { return }
-            if isRecording {
-                guard sample.quality.isReliable else {
-                    invalidateCapture()
-                    lastError = "Tracking was lost while recording. Record both passes again."
-                    return
-                }
-                do { try recorder?.append(pixelBuffer: frame.capturedImage, timestamp: frame.timestamp, transform: frame.camera.transform) }
-                catch { invalidateCapture(); lastError = error.localizedDescription }
-            }
+            if frame.worldMappingStatus != worldMappingStatus { worldMappingStatus = frame.worldMappingStatus }
+            frameHandler?(frame)
             if positionMode == .relocalizing, sample.quality.isReliable {
                 positionMode = .ar
                 relocalizationTimeout?.cancel(); relocalizationTimeout = nil
@@ -372,8 +219,8 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
         let message = Self.describe(error)
         MainActor.assumeIsolated {
-            if isRecording || captureStage == .overviewSaving || captureStage == .edgeSaving || captureStage == .mapSaving { invalidateCapture() }
             lastError = message; quality = .notAvailable; isRunning = false; pose = nil
+            interruptionCount += 1
             useManualMode()
         }
     }
@@ -381,10 +228,7 @@ final class ARTrackingSession: NSObject, PlayerTracking, ARSessionDelegate {
     nonisolated func sessionWasInterrupted(_ session: ARSession) {
         MainActor.assumeIsolated {
             isInterrupted = true; quality = .notAvailable; pose = nil; currentTile = nil
-            if isRecording || captureStage == .overviewSaving || captureStage == .edgeSaving || captureStage == .mapSaving {
-                invalidateCapture()
-                lastError = "Capture interrupted. Record both passes again."
-            }
+            interruptionCount += 1
             if positionMode == .ar { positionMode = .relocalizing }
             relocalizationTimeout?.cancel()
         }
