@@ -12,9 +12,25 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / ".cache" / "yoloe"
 MODEL = "yoloe-26s-seg.pt"
 CLASSES = ["door", "desk", "sofa", "chair", "bookshelf", "cabinet", "table", "television", "refrigerator", "sink"]
+PROMPTS = ["door", "office desk", "sofa", "chair", "bookshelf", "storage cabinet", "table", "television", "refrigerator", "sink"]
 FPS = 1
 CONFIDENCE = 0.35
 MAX_RESULTS = 8
+
+
+def diverse_best(items, limit, per_class, score):
+    buckets = {}
+    for item in sorted(items, key=score, reverse=True):
+        buckets.setdefault(item["label"], []).append(item)
+    ordered = sorted(buckets.values(), key=lambda bucket: score(bucket[0]), reverse=True)
+    selected = []
+    for rank in range(per_class):
+        for bucket in ordered:
+            if rank < len(bucket):
+                selected.append(bucket[rank])
+                if len(selected) == limit:
+                    return selected
+    return selected
 
 
 def emit(event):
@@ -38,9 +54,10 @@ def remember(tracks, candidate):
         track["lastBox"] = candidate["box"]
         if candidate["confidence"] > track["best"]["confidence"]:
             track["best"] = candidate
-    elif len(tracks) < 64:
-        tracks.append({"label": candidate["label"], "lastSeen": candidate["t"],
-                       "lastBox": candidate["box"], "best": candidate})
+    else:
+        track = {"label": candidate["label"], "lastSeen": candidate["t"],
+                 "lastBox": candidate["box"], "best": candidate}
+        tracks[:] = diverse_best(tracks + [track], 64, 8, lambda item: item["best"]["confidence"])
 
 
 def load_model():
@@ -55,7 +72,7 @@ def load_model():
         from ultralytics import YOLOE
         torch.set_num_threads(min(4, os.cpu_count() or 1))
         model = YOLOE(MODEL)
-        model.set_classes(CLASSES)
+        model.set_classes(PROMPTS)
     return model
 
 
@@ -76,6 +93,9 @@ def analyze_video(model, spec):
     analyzed = 0
     last_t = -1.0
     fallback_timestamps = False
+    diagnostics = {name: {} for name in ["proposalsByClass", "belowThresholdByClass", "areaRejectedByClass", "acceptedByClass", "selectedByClass"]}
+    def count(group, label):
+        diagnostics[group][label] = diagnostics[group].get(label, 0) + 1
     try:
         while capture.grab():
             frame_index += 1
@@ -93,8 +113,8 @@ def analyze_video(model, spec):
                 raise ValueError("A sampled video frame could not be decoded.")
             next_sample = t + 1.0 / FPS
             with contextlib.redirect_stdout(sys.stderr):
-                results = model.predict(frame, device="cpu", imgsz=640, conf=CONFIDENCE,
-                                        iou=0.5, max_det=16, verbose=False)
+                results = model.predict(frame, device="cpu", imgsz=640, conf=0.20,
+                                        iou=0.5, max_det=32, verbose=False)
             analyzed += 1
             result = results[0]
             if result.boxes is not None and len(result.boxes):
@@ -109,9 +129,16 @@ def analyze_video(model, spec):
                     x1, y1, x2, y2 = [max(0.0, min(1.0, float(value))) for value in box]
                     normalized = [x1, y1, x2 - x1, y2 - y1]
                     area = normalized[2] * normalized[3]
-                    if area < 0.015 or area > 0.9 or score < CONFIDENCE:
+                    label = CLASSES[int(class_id)]
+                    count("proposalsByClass", label)
+                    if score < CONFIDENCE:
+                        count("belowThresholdByClass", label)
                         continue
-                    remember(tracks, {"label": CLASSES[int(class_id)], "t": t, "box": normalized,
+                    if area < 0.015 or area > 0.9:
+                        count("areaRejectedByClass", label)
+                        continue
+                    count("acceptedByClass", label)
+                    remember(tracks, {"label": label, "t": t, "box": normalized,
                                       "confidence": float(score), "frameIndex": frame_index, "jpeg": encoded.tobytes()})
             if analyzed == 1 or analyzed % 10 == 0:
                 emit({"type": "progress", "message": f"YOLOE {spec['pass']}: {analyzed} frames analyzed, at {t:.1f}s"})
@@ -119,10 +146,11 @@ def analyze_video(model, spec):
         capture.release()
     if analyzed == 0:
         raise ValueError("No video frames could be analyzed.")
-    best = sorted((track["best"] for track in tracks), key=lambda item: item["confidence"], reverse=True)[:MAX_RESULTS]
+    best = diverse_best([track["best"] for track in tracks], MAX_RESULTS, 2, lambda item: item["confidence"])
     detections = []
     import numpy as np
     for candidate in sorted(best, key=lambda item: item["t"]):
+        count("selectedByClass", candidate["label"])
         image = cv2.imdecode(np.frombuffer(candidate["jpeg"], dtype=np.uint8), cv2.IMREAD_COLOR)
         h, w = image.shape[:2]
         x, y, bw, bh = candidate["box"]
@@ -135,7 +163,8 @@ def analyze_video(model, spec):
             detection["frameJpeg"] = base64.b64encode(jpeg).decode("ascii")
         detections.append(detection)
     return {"pass": spec["pass"], "duration": spec["duration"], "detections": detections,
-            "framesAnalyzed": analyzed, "timestampSource": "frame-index/fps fallback" if fallback_timestamps else "decoder presentation time"}
+            "framesAnalyzed": analyzed, "diagnostics": diagnostics,
+            "timestampSource": "frame-index/fps fallback" if fallback_timestamps else "decoder presentation time"}
 
 
 def main():
@@ -145,7 +174,7 @@ def main():
         import numpy as np
         with contextlib.redirect_stdout(sys.stderr):
             model.predict(np.zeros((640, 640, 3), dtype=np.uint8), device="cpu", imgsz=640, verbose=False)
-        (CACHE / "ready.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES}), encoding="utf-8")
+        (CACHE / "ready.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES, "prompts": PROMPTS}), encoding="utf-8")
         emit({"type": "ready", "model": MODEL, "classes": CLASSES})
         return
     job = json.load(sys.stdin)
@@ -156,6 +185,7 @@ def main():
     emit({"type": "result", "model": MODEL, "elapsedMs": round((time.monotonic() - started) * 1000),
           "passes": passes, "analysis": {"engine": "yoloe", "device": "cpu", "fps": FPS,
           "confidenceThreshold": CONFIDENCE, "classes": CLASSES, "maxObjectsPerPass": MAX_RESULTS,
+          "prompts": PROMPTS, "maxCandidatesPerClass": 2,
           "deduplication": "short image-space overlap tracks; not persistent world identities"},
           "usage": None, "cleanupWarnings": []})
 

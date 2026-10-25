@@ -109,6 +109,7 @@ test('timestamps stay in their own video and generic labels are omitted', () => 
 
 function form() {
   const value = new FormData();
+  value.set('detector', 'gemini');
   for (const pass of ['overview', 'edge']) { value.set(pass, new Blob([mp4], { type: 'video/mp4' }), `${pass}.mp4`); value.set(`${pass}Duration`, '30'); }
   return value;
 }
@@ -145,7 +146,7 @@ test('MOV uploads need no browser-provided duration and the server enforces 120 
   } } });
   const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
   const url = `http://127.0.0.1:${address.port}/api/dashboard/video-test`;
-  const body = new FormData();
+  const body = new FormData(); body.set('detector', 'gemini');
   for (const pass of ['overview', 'edge']) body.set(pass, new Blob([movie('qt  ')], { type: 'application/octet-stream' }), `${pass}.MOV`);
   const response = await fetch(url, { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body });
   assert.equal(response.status, 200);

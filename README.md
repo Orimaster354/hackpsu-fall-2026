@@ -4,7 +4,7 @@ An Among Us-inspired game played in a real room on four iPhones. Players walk to
 
 ## MVP
 - Host records two videos with a pose log (an overview, then a walk along the walls) and saves an ARWorldMap. The app does no geometry.
-- The server builds the room polygon and a 1 m tile grid, and Gemini Flash finds objects in the videos. Task stations go on edge tiles only, plus an emergency tile near the center. Host reviews and can edit.
+- The planned scan processor builds the room polygon and a 1 m tile grid. YOLOE detects objects; Gemini suggests task landmarks from detection metadata. Server geometry places stations on edge tiles and an emergency tile near the center; host reviews and edits. Detection/reasoning is available in the developer dashboard; scan geometry remains pending.
 - Players see world-anchored AR icons: a question mark on task tiles and an EMERGENCY text icon on the meeting tile.
 - Four phones join with a 4-letter room code. No QR codes.
 - 1 impostor, 3 crew. Roles are private.
@@ -18,7 +18,7 @@ An Among Us-inspired game played in a real room on four iPhones. Players walk to
 ## Stack
 - iOS: Swift, SwiftUI, ARKit (video, pose log, ARWorldMap, AR icons), Core Motion.
 - Server: Node.js, `ws`, in-memory state (no database).
-- AI: Gemini Flash, called only from the server.
+- AI: local YOLOE-26 Small detection; Gemini task reasoning called only from the server. See `server/README.md` for detector setup and the two-video dashboard.
 
 ## Setup
 1. iOS: open `Untitled Project 2.xcodeproj` on a Mac, set your signing team, run on a physical iPhone.

@@ -37,11 +37,17 @@ function validateYoloResult(result, videos) {
       return safe;
     });
     return { pass: pass.pass, duration: video.duration, detections,
+      diagnostics: pass.diagnostics ? Object.fromEntries(['proposalsByClass', 'belowThresholdByClass', 'areaRejectedByClass', 'acceptedByClass', 'selectedByClass']
+        .map((group) => [group, Object.fromEntries(CLASSES.filter((label) => Number.isInteger(pass.diagnostics[group]?.[label])
+          && pass.diagnostics[group][label] >= 0 && pass.diagnostics[group][label] <= 100000)
+          .map((label) => [label, pass.diagnostics[group][label]]))])) : null,
       framesAnalyzed: Number.isInteger(pass.framesAnalyzed) ? pass.framesAnalyzed : null,
       timestampSource: pass.timestampSource === 'decoder presentation time' ? pass.timestampSource : 'frame-index/fps fallback' };
   });
   return { model: MODEL, passes, analysis: { engine: 'yoloe', device: 'cpu', fps: 1, confidenceThreshold: 0.35,
-    classes: CLASSES, maxObjectsPerPass: 8, deduplication: 'short image-space overlap tracks; not persistent world identities' },
+    classes: CLASSES, maxObjectsPerPass: 8, maxCandidatesPerClass: 2,
+    deduplication: 'short image-space overlap tracks; not persistent world identities' },
+    primaryDetector: 'yoloe',
     usage: null, cleanupWarnings: [] };
 }
 

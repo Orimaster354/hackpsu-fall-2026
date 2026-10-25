@@ -7,7 +7,7 @@ let result;
 let timer;
 let detectorConfig;
 
-function engine() { return $('detector').value || 'gemini'; }
+function engine() { return $('detector').value || 'yoloe'; }
 function selectDetector() {
   if (!detectorConfig) return;
   const selected = detectorConfig.detectors?.[engine()] || detectorConfig;
@@ -16,8 +16,12 @@ function selectDetector() {
     ? `Model: ${selected.model} · Local CPU · 1 FPS · score threshold 0.35 · ${configured ? 'Ready' : 'Install and warm up the YOLOE runtime, then restart'}`
     : `Model: ${selected.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${selected.quality ? ` · High detail, ${selected.quality.fps} FPS · Videos analyzed separately` : ''}`;
   $('upload-notice').textContent = engine() === 'yoloe'
-    ? 'YOLOE processes both files on this laptop. No videos or frames are sent to Gemini. Temporary local copies are removed after the run.'
+    ? 'YOLOE processes videos locally. If station reasoning is checked, only detection labels/scores/boxes/IDs go to Gemini; no videos or frame images are sent. Temporary local copies are removed after the run.'
     : 'Gemini mode sends both complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
+  $('reasoning').disabled = !detectorConfig.reasoning?.configured || Boolean(controller);
+  $('reasoning-status').textContent = detectorConfig.reasoning?.configured
+    ? `Reasoning model: ${detectorConfig.reasoning.model}. Suggestions still require physical placement and review.`
+    : 'Gemini reasoning is unavailable. Set GEMINI_API_KEY in server/.env and restart; local detection remains available.';
   $('status').textContent = configured ? 'READY' : 'SETUP REQUIRED';
   controls();
 }
@@ -32,6 +36,7 @@ function controls() {
   $('cancel').disabled = !controller;
   for (const pass of passes) $(pass).disabled = Boolean(controller);
   $('detector').disabled = Boolean(controller);
+  $('reasoning').disabled = !detectorConfig?.reasoning?.configured || Boolean(controller);
   const waiting = passes.filter((pass) => !clips[pass]?.ready);
   $('start-reason').textContent = controller ? 'Analysis is running. Progress appears below.'
     : !configured ? 'The selected detector is not configured. See the model status above.'
@@ -61,6 +66,8 @@ for (const pass of passes) {
     clips[pass] = { file, valid: false, ready: false };
     video.removeAttribute('src'); video.load();
     result = null; $('download').disabled = true;
+    $('planning').hidden = true;
+    for (const name of passes) $(`${name}-stats`).textContent = '';
     for (const name of passes) { $(`${name}-detections`).replaceChildren(); $(`${name}-snapshot`).hidden = true; if (clips[name]) clips[name].selected = null; draw(name); }
     $('error').hidden = true;
     if (!file) { video.removeAttribute('src'); video.load(); $(`${pass}-info`).textContent = 'No video selected'; controls(); return; }
@@ -98,10 +105,15 @@ function showResult(data) {
   let total = 0;
   for (const passResult of data.passes) {
     const list = $(`${passResult.pass}-detections`); list.replaceChildren();
+    const stats = passResult.diagnostics;
+    $(`${passResult.pass}-stats`).textContent = stats ?
+      ['proposalsByClass', 'belowThresholdByClass', 'areaRejectedByClass', 'selectedByClass'].map((group) =>
+        `${({ proposalsByClass: 'Proposals', belowThresholdByClass: 'Below score threshold', areaRejectedByClass: 'Size filtered', selectedByClass: 'Shown' })[group]}: ${Object.entries(stats[group] || {}).map(([name, count]) => `${name} ${count}`).join(', ') || 'none'}`).join(' · ') : '';
     total += passResult.detections.length;
     if (!passResult.detections.length) { const p = document.createElement('p'); p.className = 'helper'; p.textContent = 'No usable objects detected in this pass.'; list.append(p); }
-    for (const detection of passResult.detections) {
+    for (const [index, detection] of passResult.detections.entries()) {
       const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-pressed', 'false');
+      button.dataset.candidateId = `${passResult.pass}:${index}`;
       button.textContent = `${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''}`;
       button.addEventListener('click', () => {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
@@ -119,6 +131,21 @@ function showResult(data) {
   }
   $('summary').textContent = `${total} detections · ${data.model} · ${(data.elapsedMs / 1000).toFixed(1)}s analysis`;
   $('download').disabled = false;
+  $('planning').hidden = !data.planning;
+  $('station-plan').replaceChildren();
+  if (data.planning) {
+    $('planning-summary').textContent = data.planning.summary;
+    for (const suggestion of data.planning.suggestions) {
+      const item = document.createElement('li');
+      item.textContent = `${suggestion.label} · ${suggestion.pass} ${suggestion.t.toFixed(2)}s · ${suggestion.kind}/${suggestion.task}: ${suggestion.reason} `;
+      const inspect = document.createElement('button'); inspect.type = 'button'; inspect.textContent = 'Inspect frame';
+      inspect.addEventListener('click', () => {
+        const target = document.querySelector(`[data-candidate-id="${suggestion.candidateId}"]`); target?.click();
+      });
+      item.append(inspect); $('station-plan').append(item);
+    }
+    if (data.planning.status === 'unavailable') log(`Reasoning unavailable: ${data.planning.summary}`);
+  }
   for (const warning of data.cleanupWarnings || []) log(warning);
   log('Complete. Click a detection to seek and view its box.');
   $('status').textContent = 'COMPLETE';
@@ -128,8 +155,10 @@ $('test-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if ($('start').disabled) return;
   controller = new AbortController(); result = null; $('download').disabled = true; controls();
+  for (const pass of passes) $(`${pass}-stats`).textContent = '';
   for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; clips[pass].selected = null; draw(pass); }
   $('events').replaceChildren(); $('error').hidden = true; $('status').textContent = 'ANALYZING';
+  $('planning').hidden = true;
   $('summary').textContent = 'Uploading both videos…';
   const started = Date.now();
   timer = setInterval(() => { $('elapsed').textContent = `${Math.floor((Date.now() - started) / 1000)}s elapsed`; }, 1000);
@@ -138,6 +167,7 @@ $('test-form').addEventListener('submit', async (event) => {
   try {
     const form = new FormData();
     form.append('detector', engine());
+    form.append('reasoning', $('reasoning').checked && detectorConfig.reasoning?.configured ? '1' : '0');
     for (const pass of passes) form.append(pass, clips[pass].file);
     const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
@@ -175,7 +205,8 @@ window.addEventListener('pagehide', () => { controller?.abort(); for (const clip
     const response = await fetch('/api/dashboard/video-test', { cache: 'no-store' });
     if (!response.ok) throw new Error('Cannot read video test configuration.');
     detectorConfig = await response.json();
-    if (detectorConfig.detectors?.yoloe?.configured) $('detector').value = 'yoloe';
+    if (detectorConfig.defaultDetector) $('detector').value = detectorConfig.defaultDetector;
+    else if (detectorConfig.detectors?.yoloe?.configured) $('detector').value = 'yoloe';
     selectDetector();
   } catch (error) { $('configuration').textContent = error.message; $('status').textContent = 'SERVER UNREACHABLE'; }
 })();
