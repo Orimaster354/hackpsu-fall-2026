@@ -7,7 +7,7 @@ Inspected `origin/feature/arkit` at `f7f49a7` against the local backend scan imp
 - `ContentView` retains the real connection, passes `ARPositionProvider`, and opens `RoomScanView` from the lobby scan action.
 - `RoomScanFlow` records the perimeter, waits for setup, chooses a vantage, captures the sweep, then saves/uploads the world map. The branch removed its stand-in scan server.
 - `SweepFrameEncoder` preserves native image orientation, checks JPEG size/orientation and scales intrinsics to the encoded dimensions.
-- `ScanClient` uses the correct JSON bodies, `X-Player-Id`, and `/scan/:room/perimeter` / `/scan/:room/sweep`. Its result types match the backend responses. Sweep timeout is 180 seconds.
+- `ScanClient` uses the correct JSON bodies, `X-Player-Id`, and `/scan/:room/perimeter` / `/scan/:room/sweep`. Its result types match the backend responses. Sweep timeout is 180 seconds. With the new YOLOE-26 Large default on CPU, a full 60-frame sweep plus Gemini may exceed that deadline. Owner D: increase the processing timeout (suggest 600 seconds, matching the detector deadline) before full-length testing; alternatively select a smaller server checkpoint. No Swift code was changed here.
 - `LiveScanBackend` uses `GameClient.uploadMap`; map requests use the correct binary route/headers. `ARPositionProvider` downloads the map, relocalizes, and supplies tiles through the UI coordinator, with manual fallback.
 - The branch models handle nullable lobby grid, hostId and setupConfirmed. Earlier main-checkout warnings about those missing fields do not describe this ARKit branch.
 

@@ -41,7 +41,7 @@ class ScanMonitor {
     return {revision:this.revision,runs:this.runs.map(run=>({
       id:run.id,room:run.room,kind:run.kind,status:run.status,step:run.step,startedAt:run.startedAt,updatedAt:run.updatedAt,endedAt:run.endedAt,
       totalBytes:run.totalBytes,receivedBytes:run.receivedBytes,totalFrames:run.totalFrames,frames:run.frames,latestFrame:run.latestFrame,
-      notesFound:run.notesFound,notes:run.notes,stations:run.stations,grid:run.grid,result:run.result,planning:run.planning,error:run.error,events:run.events,
+      detectorModel:run.detectorModel,notesFound:run.notesFound,notes:run.notes,stations:run.stations,grid:run.grid,result:run.result,planning:run.planning,error:run.error,events:run.events,
       previews:[...run.previews].map(([index,frame])=>({index,t:frame.t,detections:frame.detections,url:`/api/dashboard/scans/${run.id}/frames/${index}`})),
     }))};
   }

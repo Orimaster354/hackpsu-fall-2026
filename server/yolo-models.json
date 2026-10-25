@@ -1,0 +1,4 @@
+{
+  "defaultModel": "yoloe-26l-seg.pt",
+  "allowedModels": ["yoloe-26s-seg.pt", "yoloe-26m-seg.pt", "yoloe-26l-seg.pt", "yoloe-26x-seg.pt"]
+}
