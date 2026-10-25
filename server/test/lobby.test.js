@@ -146,6 +146,11 @@ test('dashboard serves live public status without roles or reconnect credentials
   }
   assert.deepEqual((await (await fetch(base + '/api/dashboard')).json()).rooms, []);
   const client = await connect(`ws://127.0.0.1:${address.port}/ws`);
+  const pending = await (await fetch(base + '/api/dashboard')).json();
+  assert.equal(pending.connections, 1);
+  assert.deepEqual(pending.rooms, []); // Socket open, but no create/join yet.
+  assert.ok(Array.isArray(pending.connectionUrls));
+  assert.ok(pending.connectionUrls.every((url) => url.startsWith('ws://') && url.endsWith(`:${address.port}/ws`)));
   client.send({ t: 'create', name: 'Dashboard test' });
   const joined = await client.waitFor((message) => message.t === 'joined');
   const player = app.rooms.rooms.get(joined.room).players.get(joined.playerId);
@@ -169,4 +174,11 @@ test('dashboard serves live public status without roles or reconnect credentials
   assert.equal(offline.connections, 0);
   assert.equal(offline.rooms[0].players[0].connected, false);
   assert.equal(offline.rooms[0].players[0].ready, false);
+  const replacement = await connect(`ws://127.0.0.1:${address.port}/ws`);
+  replacement.send({ t: 'join', room: joined.room, name: 'Dashboard test', playerId: joined.playerId });
+  await replacement.waitFor((message) => message.t === 'joined');
+  const restored = await (await fetch(base + '/api/dashboard')).json();
+  assert.equal(restored.connections, 1);
+  assert.equal(restored.rooms[0].players.length, 1);
+  assert.equal(restored.rooms[0].players[0].connected, true);
 });
