@@ -63,7 +63,8 @@ test('four fake clients share one lobby and a fifth is rejected', async (t) => {
     assert.deepEqual(lobby.players.map((player) => player.name), [
       'Host', 'Player 2', 'Player 3', 'Player 4',
     ]);
-    assert.deepEqual(lobby.grid, { cols: 5, rows: 5, tileSize: 1, blocked: [] });
+    assert.equal(lobby.grid, null);
+    assert.equal(lobby.setupConfirmed, false);
     assert.deepEqual(lobby.stations, []);
     assert.equal(lobby.hasMap, false);
     assert.ok(lobby.players.every((player) => !('role' in player)));

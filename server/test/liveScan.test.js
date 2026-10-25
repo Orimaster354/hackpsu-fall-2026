@@ -4,6 +4,7 @@ const { LiveScan, MAX_FRAME_BYTES } = require('../liveScan');
 const { RoomError } = require('../errors');
 const { createAppServer } = require('../index');
 const { connectClient } = require('../tools/client');
+const manualSetup = require('../fixtures/manual-setup.json');
 const jpeg = Buffer.from([255, 216, 255, 217]).toString('base64');
 const objects = [{ label: 'desk lamp', box: [0.2, 0.1, 0.6, 0.4] }];
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -76,7 +77,7 @@ test('live scan duration limit closes the session automatically', async (t) => {
 });
 
 test('live detections are host-private and game start terminates scanning', async (t) => {
-  const app = createAppServer({ liveScanOptions: { apiKey: 'test-only-key', detect: async () => objects } });
+  const app = createAppServer({ manualSetup, liveScanOptions: { apiKey: 'test-only-key', detect: async () => objects } });
   const address = await app.listen(0, '127.0.0.1'); t.after(() => app.close());
   const url = `ws://127.0.0.1:${address.port}/ws`;
   const host = await connectClient(url);
@@ -100,6 +101,8 @@ test('live detections are host-private and game start terminates scanning', asyn
   const result = await host.waitFor((event) => event.t === 'scan_detections');
   assert.equal(result.frameId, 'live-1'); assert.deepEqual(result.objects, objects);
   assert.ok(!guestEvents.some((event) => event.t === 'scan_detections' || event.t === 'scan_status'));
+  host.send({ t: 'confirmSetup' });
+  await host.waitFor((event) => event.t === 'setup' && event.setupConfirmed);
   host.send({ t: 'start' });
   await host.waitFor((event) => event.t === 'scan_status' && event.reason === 'game_started');
   assert.equal(room.liveScan, null); assert.equal(scan.closed, true);
