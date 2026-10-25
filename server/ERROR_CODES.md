@@ -39,3 +39,5 @@ Gemini/image errors: `GEMINI_NOT_CONFIGURED`, `GEMINI_UNAVAILABLE`, `GEMINI_TIME
 The video dashboard streams NDJSON records with `type:"error"` and `code`/`message`, rather than gameplay WebSocket frames. Additional codes include `LOCAL_ONLY`, `INVALID_REQUEST`, `INVALID_VIDEO`, `VIDEO_TOO_LARGE`, `VIDEO_TEST_BUSY`, `UPLOAD_ABORTED`, `GEMINI_QUOTA`, `GEMINI_VIDEO_FAILED`, `VIDEO_TEST_CANCELLED` and `VIDEO_TEST_FAILED`. The backend attempts provider file cleanup after success/failure/cancel. Retry manually after fixing the cause; do not continuously retry quota errors.
 
 Phase 3 scan upload/process errors are not implemented yet; this reference does not imply those routes exist.
+
+Local YOLOE diagnostic errors: `INVALID_DETECTOR` (select Gemini or YOLOE), `YOLOE_NOT_READY` (install/warm up runtime), `YOLOE_INVALID_RESPONSE` (invalid worker result), `YOLOE_FAILED` (worker/decode/inference failure), `YOLOE_CANCELLED` (user stopped it), and `YOLOE_TIMEOUT` (ten-minute worker limit). These are developer NDJSON errors, not new gameplay events. Local mode needs no Gemini key and sends no video to Google.

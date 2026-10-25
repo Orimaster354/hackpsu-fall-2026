@@ -5,6 +5,22 @@ let configured = false;
 let controller;
 let result;
 let timer;
+let detectorConfig;
+
+function engine() { return $('detector').value || 'gemini'; }
+function selectDetector() {
+  if (!detectorConfig) return;
+  const selected = detectorConfig.detectors?.[engine()] || detectorConfig;
+  configured = selected.configured;
+  $('configuration').textContent = engine() === 'yoloe'
+    ? `Model: ${selected.model} · Local CPU · 1 FPS · score threshold 0.35 · ${configured ? 'Ready' : 'Install and warm up the YOLOE runtime, then restart'}`
+    : `Model: ${selected.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${selected.quality ? ` · High detail, ${selected.quality.fps} FPS · Videos analyzed separately` : ''}`;
+  $('upload-notice').textContent = engine() === 'yoloe'
+    ? 'YOLOE processes both files on this laptop. No videos or frames are sent to Gemini. Temporary local copies are removed after the run.'
+    : 'Gemini mode sends both complete videos to Google using the server API key. Temporary provider uploads are deleted after the attempt when possible.';
+  $('status').textContent = configured ? 'READY' : 'SETUP REQUIRED';
+  controls();
+}
 
 function log(message) {
   const li = document.createElement('li');
@@ -15,9 +31,10 @@ function controls() {
   $('start').disabled = !configured || Boolean(controller) || !passes.every((pass) => clips[pass]?.ready);
   $('cancel').disabled = !controller;
   for (const pass of passes) $(pass).disabled = Boolean(controller);
+  $('detector').disabled = Boolean(controller);
   const waiting = passes.filter((pass) => !clips[pass]?.ready);
   $('start-reason').textContent = controller ? 'Analysis is running. Progress appears below.'
-    : !configured ? 'Waiting for a configured Gemini connection.'
+    : !configured ? 'The selected detector is not configured. See the model status above.'
       : waiting.length ? `Choose a valid ${waiting.join(' and ')} video to enable analysis. Check the message below each picker.`
         : 'Both files selected. Ready to analyze; browser preview is optional.';
 }
@@ -44,7 +61,7 @@ for (const pass of passes) {
     clips[pass] = { file, valid: false, ready: false };
     video.removeAttribute('src'); video.load();
     result = null; $('download').disabled = true;
-    for (const name of passes) { $(`${name}-detections`).replaceChildren(); if (clips[name]) clips[name].selected = null; draw(name); }
+    for (const name of passes) { $(`${name}-detections`).replaceChildren(); $(`${name}-snapshot`).hidden = true; if (clips[name]) clips[name].selected = null; draw(name); }
     $('error').hidden = true;
     if (!file) { video.removeAttribute('src'); video.load(); $(`${pass}-info`).textContent = 'No video selected'; controls(); return; }
     if (!/\.(mp4|mov)$/i.test(file.name) || file.size > 512 * 1024 * 1024 || file.size < 13) {
@@ -69,7 +86,7 @@ for (const pass of passes) {
     const clip = clips[pass]; if (!clip?.valid) return;
     if (clip.duration !== undefined && clip.duration > 120) return;
     clip.ready = true;
-    $(`${pass}-info`).textContent = `${clip.file.name} · Browser preview unavailable. You can still analyze it; the server checks duration and Gemini decodes the original file.`;
+    $(`${pass}-info`).textContent = `${clip.file.name} · Browser preview unavailable. You can still analyze it; the server checks duration and the selected detector decodes the original file.`;
     controls();
   });
   for (const event of ['seeked', 'timeupdate', 'loadeddata']) video.addEventListener(event, () => draw(pass));
@@ -85,19 +102,22 @@ function showResult(data) {
     if (!passResult.detections.length) { const p = document.createElement('p'); p.className = 'helper'; p.textContent = 'No usable objects detected in this pass.'; list.append(p); }
     for (const detection of passResult.detections) {
       const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-pressed', 'false');
-      button.textContent = `${detection.t.toFixed(2)}s · ${detection.label}`;
+      button.textContent = `${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''}`;
       button.addEventListener('click', () => {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-pressed', 'true');
         clips[passResult.pass].selected = detection;
+        const snapshot = $(`${passResult.pass}-snapshot`);
+        snapshot.hidden = !detection.frameJpeg;
+        if (detection.frameJpeg) snapshot.src = `data:image/jpeg;base64,${detection.frameJpeg}`;
         const video = $(`${passResult.pass}-video`);
-        if (video.readyState < 1) { log(`Preview unavailable here. Inspect ${detection.t.toFixed(2)}s in an external player or download the JSON.`); return; }
+        if (video.readyState < 1) { log(detection.frameJpeg ? 'Showing the exact decoded detection frame below the video.' : `Preview unavailable here. Inspect ${detection.t.toFixed(2)}s in an external player or download the JSON.`); return; }
         video.pause(); video.currentTime = detection.t; draw(passResult.pass);
       });
       list.append(button);
     }
   }
-  $('summary').textContent = `${total} detections across both videos · ${(data.elapsedMs / 1000).toFixed(1)}s analysis`;
+  $('summary').textContent = `${total} detections · ${data.model} · ${(data.elapsedMs / 1000).toFixed(1)}s analysis`;
   $('download').disabled = false;
   for (const warning of data.cleanupWarnings || []) log(warning);
   log('Complete. Click a detection to seek and view its box.');
@@ -108,15 +128,16 @@ $('test-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if ($('start').disabled) return;
   controller = new AbortController(); result = null; $('download').disabled = true; controls();
-  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); clips[pass].selected = null; draw(pass); }
+  for (const pass of passes) { $(`${pass}-detections`).replaceChildren(); $(`${pass}-snapshot`).hidden = true; clips[pass].selected = null; draw(pass); }
   $('events').replaceChildren(); $('error').hidden = true; $('status').textContent = 'ANALYZING';
   $('summary').textContent = 'Uploading both videos…';
   const started = Date.now();
   timer = setInterval(() => { $('elapsed').textContent = `${Math.floor((Date.now() - started) / 1000)}s elapsed`; }, 1000);
-  log('Sending both complete video files to the backend.');
+  log(`Sending both video files to the backend for ${engine() === 'yoloe' ? 'local YOLOE' : 'Gemini'} analysis.`);
   let gotResult = false;
   try {
     const form = new FormData();
+    form.append('detector', engine());
     for (const pass of passes) form.append(pass, clips[pass].file);
     const response = await fetch('/api/dashboard/video-test', { method: 'POST', headers: { 'X-Roomshift-Video-Test': '1' }, body: form, signal: controller.signal });
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
@@ -143,6 +164,7 @@ $('test-form').addEventListener('submit', async (event) => {
   } finally { clearInterval(timer); controller = null; controls(); }
 });
 $('cancel').addEventListener('click', () => controller?.abort());
+$('detector').addEventListener('change', () => { result = null; $('download').disabled = true; selectDetector(); });
 $('download').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a'); link.href = url; link.download = 'roomshift-video-detections.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -152,8 +174,8 @@ window.addEventListener('pagehide', () => { controller?.abort(); for (const clip
   try {
     const response = await fetch('/api/dashboard/video-test', { cache: 'no-store' });
     if (!response.ok) throw new Error('Cannot read video test configuration.');
-    const config = await response.json(); configured = config.configured;
-    $('configuration').textContent = `Model: ${config.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${config.quality ? ` · High detail, ${config.quality.fps} FPS, ${config.quality.maxObjectsPerPass} landmarks/pass · Videos analyzed separately` : ''}${config.busy ? ' · Another test is running' : ''}`;
-    $('status').textContent = configured ? 'READY' : 'KEY REQUIRED'; controls();
+    detectorConfig = await response.json();
+    if (detectorConfig.detectors?.yoloe?.configured) $('detector').value = 'yoloe';
+    selectDetector();
   } catch (error) { $('configuration').textContent = error.message; $('status').textContent = 'SERVER UNREACHABLE'; }
 })();
