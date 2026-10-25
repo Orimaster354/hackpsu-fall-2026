@@ -3,7 +3,8 @@ import Playgrounds
 
 struct ContentView: View {
     var body: some View {
-        NetDebugView() // TEMP: network test screen, do not commit
+        Text("Hello, world!")
+            .padding()
     }
 }
 
