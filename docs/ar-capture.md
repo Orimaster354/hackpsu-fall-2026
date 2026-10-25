@@ -35,7 +35,7 @@ Errors from any upload return to the step before it with the server's message. A
 - Upload with `ScanClient.uploadSweep(vantage:intrinsics:frames:)`. Payloads reach tens of megabytes, so show progress and do not block the main thread while encoding.
 
 ## ARWorldMap
-After the sweep upload succeeds, call `session.getCurrentWorldMap`, archive it, and send the bytes with `ScanClient.uploadMap(_:)` (this is `POST /map/:room`). Joiners download it and relocalize in Phase 4.
+After the sweep upload succeeds, call `session.getCurrentWorldMap`, archive it, and send the bytes with `GameClient.uploadMap(_:)` (this is `POST /map/:room`; it is on `GameClient`, not `ScanClient`). Joiners download it and relocalize in Phase 4.
 
 ## Code you get from Owner D (on `main`)
 - `MyApp/Models/ScanModels.swift`: `CameraPose`, `CameraIntrinsics`, `SweepFrame`, `PerimeterUpload`, `SweepUpload`.

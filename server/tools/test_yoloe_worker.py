@@ -8,6 +8,86 @@ spec.loader.exec_module(worker)
 
 
 class OverlapTests(unittest.TestCase):
+    def test_sweep_keeps_every_frame_and_more_than_eight_notes_without_image_tracking(self):
+        import cv2
+        import numpy as np
+        import tempfile
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        class Values:
+            def __init__(self, values): self.values = values
+            def cpu(self): return self
+            def tolist(self): return self.values
+        class Model:
+            def __init__(self): self.calls = []
+            def get_text_pe(self, labels): return labels
+            def set_classes(self, labels, embeddings): self.labels = labels
+            def predict(self, frame, **options):
+                self.calls.append(self.labels)
+                if len(self.labels) != 1: return [SimpleNamespace(boxes=None)]
+                boxes = [[0.02+i*.09, 0.2, 0.05+i*.09, 0.23] for i in range(10)]
+                return [SimpleNamespace(boxes=SimpleNamespace(xyxyn=Values(boxes), conf=Values([0.8]*10), cls=Values([0]*10)))]
+        model = Model()
+        with tempfile.TemporaryDirectory() as directory:
+            filename = str(Path(directory)/'frame.jpg')
+            cv2.imwrite(filename, np.zeros((48, 64, 3), dtype=np.uint8))
+            with contextlib.redirect_stdout(io.StringIO()):
+                frames = worker.analyze_sweep(model, [{"index": 7, "path": filename}, {"index": 9, "path": filename}])
+        self.assertEqual([frame["index"] for frame in frames], [7, 9])
+        self.assertEqual([len(frame["detections"]) for frame in frames], [10, 10])
+        self.assertEqual(len(model.calls), 4)
+        self.assertEqual(model.calls[0], ["yellow sticky note"])
+        self.assertNotIn("yellow sticky note", model.calls[1])
+
+    def test_scene_alignment_links_moving_notes_without_merging_distinct_notes(self):
+        import cv2
+        import numpy as np
+        rng = np.random.default_rng(23)
+        before = rng.integers(0, 256, (320, 480), dtype=np.uint8)
+        after = cv2.warpAffine(before, np.float32([[1, 0, 55], [0, 1, 12]]), (480, 320))
+        tracks = []
+        for x in [0.3, 0.5]:
+            worker.remember(tracks, {"label": worker.NOTE, "box": [x, 0.4, 0.04, 0.04], "t": 0, "confidence": 0.6})
+        self.assertTrue(worker.align_tracks(tracks, before, after, 1))
+        for x in [0.3, 0.5]:
+            worker.remember(tracks, {"label": worker.NOTE, "box": [x+55/480, 0.4+12/320, 0.04, 0.04], "t": 1, "confidence": 0.9})
+        notes = worker.final_notes(tracks)
+        self.assertEqual(len(notes), 2)
+        self.assertEqual([item["observationCount"] for item in notes], [2, 2])
+        self.assertEqual([item["t"] for item in notes], [1, 1])
+
+    def test_textureless_frames_do_not_invent_camera_alignment(self):
+        import numpy as np
+        image = np.zeros((240, 320), dtype=np.uint8)
+        self.assertFalse(worker.align_tracks([], None, image, 1))
+        self.assertFalse(worker.align_tracks([], image, image, 1))
+
+    def test_same_frame_triplicate_keeps_highest_score_before_context(self):
+        notes = [
+            {"label": worker.NOTE, "box": [0.2, 0.2, 0.1, 0.1], "confidence": 0.6},
+            {"label": worker.NOTE, "box": [0.201, 0.202, 0.095, 0.096], "confidence": 0.9},
+            {"label": worker.NOTE, "box": [0.205, 0.205, 0.08, 0.08], "confidence": 0.7},
+        ]
+        selected = worker.suppress_overlapping_notes(notes)
+        self.assertEqual(selected, [notes[1]])
+
+    def test_nested_duplicate_suppressed_but_distinct_nearby_notes_survive(self):
+        notes = [
+            {"label": worker.NOTE, "box": [0.1, 0.1, 0.1, 0.1], "confidence": 0.9},
+            {"label": worker.NOTE, "box": [0.12, 0.12, 0.03, 0.03], "confidence": 0.8},
+            {"label": worker.NOTE, "box": [0.21, 0.1, 0.1, 0.1], "confidence": 0.7},
+        ]
+        self.assertEqual(worker.suppress_overlapping_notes(notes), [notes[0], notes[2]])
+
+    def test_two_notes_in_one_frame_cannot_update_the_same_track(self):
+        tracks = []
+        note = {"label": worker.NOTE, "box": [0.1, 0.1, 0.1, 0.1], "t": 0, "confidence": 0.8}
+        worker.remember(tracks, note)
+        worker.remember(tracks, {**note, "t": 1})
+        worker.remember(tracks, {**note, "t": 1, "box": [0.12, 0.1, 0.1, 0.1]})
+        self.assertEqual(len(tracks), 2)
+
     def test_overlap(self):
         self.assertAlmostEqual(worker.iou([0, 0, 0.5, 0.5], [0, 0, 0.5, 0.5]), 1)
         self.assertEqual(worker.iou([0, 0, 0.2, 0.2], [0.5, 0.5, 0.2, 0.2]), 0)

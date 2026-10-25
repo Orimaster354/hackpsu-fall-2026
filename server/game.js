@@ -62,7 +62,7 @@ class Game {
     this.room.broadcast({ t: 'state', ...this.state() });
   }
 
-  // Internal producer API for the future scan processor and explicit developer fixtures.
+  // Internal producer API for scan processing and explicit developer fixtures.
   // Clients cannot supply room geometry through a WebSocket event.
   applySetup(message) {
     this.phase('lobby');
@@ -76,6 +76,7 @@ class Game {
   }
 
   editStation(player, message) {
+    requireAction(!this.room.scanBusy,'SCAN_BUSY','Wait for scan processing before editing setup.');
     this.phase('lobby');
     this.host(player);
     requireAction(this.room.grid, 'SETUP_MISSING', 'Wait for a server-generated setup.');
@@ -97,6 +98,7 @@ class Game {
   }
 
   confirmSetup(player) {
+    requireAction(!this.room.scanBusy,'SCAN_BUSY','Wait for scan processing before confirming setup.');
     this.phase('lobby');
     this.host(player);
     requireAction(this.room.grid, 'SETUP_MISSING', 'Wait for a server-generated setup.');
@@ -106,6 +108,7 @@ class Game {
   }
 
   start(player) {
+    requireAction(!this.room.scanBusy,'SCAN_BUSY','Wait for scan processing before starting.');
     this.phase('lobby');
     this.host(player);
     requireAction(this.room.setupConfirmed, 'SETUP_NOT_CONFIRMED', 'The host must confirm setup before starting.');

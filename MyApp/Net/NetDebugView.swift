@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Throwaway screen for checking GameClient against the real server on a physical iPhone.
 /// Not the game UI. Not wired into the app. To use it, temporarily show `NetDebugView()` from ContentView (do not commit that).
@@ -67,6 +68,7 @@ struct NetDebugView: View {
                 if client.roomCode != nil {
                     Section("Scan (host)") {
                         Button("Upload test perimeter (5x5 m)") { uploadTestPerimeter() }
+                        Button("Upload test sweep (36 synthetic frames)") { uploadTestSweep() }
                     }
                 }
 
@@ -134,6 +136,42 @@ struct NetDebugView: View {
                 note("perimeter ok: \(result.cols)x\(result.rows), \(result.edgeTiles) edge tiles")
             } catch {
                 note("perimeter failed: \(error)")
+            }
+        }
+    }
+
+    /// 36 synthetic frames from tile (2,2), 10 degrees apart, each a plain gray JPEG with a yellow square. The poses
+    /// match docs/fixtures/postit/sweep-observations.json. No real notes are in the pictures, so the server should
+    /// accept the upload and report notesFound 0 (or whatever its detector stub returns).
+    private func uploadTestSweep() {
+        // The pixels must match the intrinsics below (the server rejects a mismatch when it finds notes).
+        let size = CGSize(width: 1920, height: 1080)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.lightGray.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.yellow.setFill()
+            context.fill(CGRect(x: 940, y: 520, width: 40, height: 40))
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
+            note("could not make a test JPEG")
+            return
+        }
+        let frames = (0..<36).map { i -> SweepFrame in
+            let yaw = Double(i) * 10 * .pi / 180
+            let pose = CameraPose(x: 2, y: 1.4, z: 2, qx: 0, qy: sin(yaw / 2), qz: 0, qw: cos(yaw / 2))
+            return SweepFrame(index: i, t: Double(i) * 0.4, pose: pose, jpegData: jpeg)
+        }
+        let intrinsics = CameraIntrinsics(fx: 1450, fy: 1450, cx: 960, cy: 540, width: 1920, height: 1080)
+        note("uploading \(frames.count) sweep frames")
+        let scan = ScanClient(client: client)
+        Task {
+            do {
+                let result = try await scan.uploadSweep(vantage: Tile(x: 2, y: 2), intrinsics: intrinsics, frames: frames)
+                note("sweep ok: \(result.notesFound) notes, \(result.stations) stations, warnings \(result.warnings)")
+            } catch {
+                note("sweep failed: (error)")
             }
         }
     }

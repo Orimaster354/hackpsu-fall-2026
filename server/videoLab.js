@@ -106,8 +106,8 @@ function createVideoDetector({ apiKey = process.env.GEMINI_API_KEY,
         } catch (error) { if (error instanceof RoomError) throw error; throw new RoomError('GEMINI_INVALID_RESPONSE', 'Gemini returned invalid JSON.'); }
         usage[video.pass] = result.usageMetadata || null;
       }
-      output = { model, elapsedMs: Date.now() - started, passes: PASSES.map((pass) => ({ pass, duration: durations[pass], detections: detections[pass] })),
-        analysis: { ...QUALITY }, usage, cleanupWarnings };
+      output = { model, elapsedMs: Date.now() - started, passes: videos.map(({ pass }) => ({ pass, duration: durations[pass], detections: detections[pass] })),
+        analysis: { ...QUALITY, inferenceRequests: videos.length }, usage, cleanupWarnings };
     } catch (error) {
       if (error instanceof RoomError) throw error;
       throw new RoomError(combined.aborted ? 'VIDEO_TEST_CANCELLED' : 'GEMINI_UNAVAILABLE',
@@ -167,7 +167,7 @@ function createVideoTestHandler(options) {
       requireAction(!request.headers.origin || request.headers.origin === `http://${request.headers.host}`, 'INVALID_REQUEST', 'Use the local dashboard origin.');
       requireAction(!busy, 'VIDEO_TEST_BUSY', 'Another video test is running. Wait or cancel it.');
       requireAction(Number(request.headers['content-length'] || 0) <= MAX_BODY_BYTES, 'VIDEO_TOO_LARGE', 'Each video must be at most 512 MiB.');
-      requireAction(request.headers['content-type']?.startsWith('multipart/form-data;'), 'INVALID_VIDEO', 'Upload both videos using the form.');
+      requireAction(request.headers['content-type']?.startsWith('multipart/form-data;'), 'INVALID_VIDEO', 'Upload a room video using the form.');
       busy = true; ownsSlot = true;
       const bytes = await readBody(request);
       let form;
@@ -181,15 +181,16 @@ function createVideoTestHandler(options) {
       const videos = [];
       for (const pass of PASSES) {
         const file = form.get(pass);
+        if (pass === 'edge' && !file) continue;
         requireAction(form.getAll(pass).length === 1 && file && typeof file.arrayBuffer === 'function'
           && file.size > 12 && file.size <= MAX_VIDEO_BYTES,
-        'INVALID_VIDEO', 'Choose two MP4 or MOV clips, each at most 512 MiB and 120 seconds.');
+        'INVALID_VIDEO', 'Choose an overview MP4 or MOV, optionally a second clip; each must be at most 512 MiB and 120 seconds.');
         const content = Buffer.from(await file.arrayBuffer());
         const metadata = movieMetadata(content, file.name);
         videos.push({ pass, bytes: content, ...metadata });
       }
       response.writeHead(200, { 'content-type': 'application/x-ndjson', 'X-Content-Type-Options': 'nosniff' });
-      write({ type: 'progress', message: `Both uploads received. Starting ${engine === 'yoloe' ? 'local YOLOE' : 'Gemini'} video test.` });
+      write({ type: 'progress', message: `${videos.length} video upload(s) received. Starting ${engine === 'yoloe' ? 'local YOLOE' : 'Gemini'} video test.` });
       const result = await selected.detect(videos, { signal: controller.signal, notify: (message) => write({ type: 'progress', message }) });
       if (form.get('reasoning') === '1') {
         write({ type: 'progress', message: 'Gemini is ranking detection metadata and suggesting phone tasks. Physical locations remain pending geometry.' });

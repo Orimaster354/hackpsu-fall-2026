@@ -46,7 +46,7 @@ final class ScanClient {
         return try await post("sweep", body: SweepUpload(vantage: vantage, intrinsics: intrinsics, frames: frames), timeout: 180)
     }
 
-    private func post<Body: Encodable, Output: Decodable>(_ route: String, body: Body, timeout: TimeInterval) async throws -> Output {
+    private func post<Body: Encodable & Sendable, Output: Decodable>(_ route: String, body: Body, timeout: TimeInterval) async throws -> Output {
         guard let room = client.roomCode, let playerId = client.playerId else { throw ScanError.notInRoom }
         guard let base = endpoint ?? ServerConfig.current(defaults: defaults),
               let url = URL(string: "\(base.httpBase)/scan/\(room)/\(route)") else { throw ScanError.badAddress }
@@ -56,7 +56,8 @@ final class ScanClient {
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(playerId, forHTTPHeaderField: "X-Player-Id")
-        let payload = try JSONEncoder().encode(body)
+        // A sweep is tens of megabytes of base64. Encode it off the main actor so the screen keeps animating.
+        let payload = try await Task.detached(priority: .userInitiated) { try JSONEncoder().encode(body) }.value
 
         let (data, response) = try await session.upload(for: request, from: payload)
         guard let http = response as? HTTPURLResponse else { throw ScanError.badResponse }
