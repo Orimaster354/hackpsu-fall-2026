@@ -1,0 +1,15 @@
+{
+  "t": "state",
+  "phase": "playing",
+  "players": [
+    {"id":"example-host","name":"Host","tile":{"x":0,"y":0},"alive":true,"tileSource":"manual","ready":true,"connected":true},
+    {"id":"example-player-2","name":"Player 2","tile":{"x":0,"y":0},"alive":true,"tileSource":"manual","ready":true,"connected":true},
+    {"id":"example-player-3","name":"Player 3","tile":{"x":0,"y":0},"alive":true,"tileSource":"manual","ready":true,"connected":true},
+    {"id":"example-player-4","name":"Player 4","tile":{"x":0,"y":0},"alive":true,"tileSource":"manual","ready":true,"connected":true}
+  ],
+  "tasksDone": 0,
+  "tasksTotal": 9,
+  "lightsOut": false,
+  "killCooldownEndsAt": 1700000025000,
+  "meeting": null
+}
