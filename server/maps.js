@@ -1,4 +1,4 @@
-const MAX_MAP_BYTES = 20 * 1024 * 1024;
+const MAX_MAP_BYTES = 64 * 1024 * 1024;
 
 class MapError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }

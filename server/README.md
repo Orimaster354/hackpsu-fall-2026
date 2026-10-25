@@ -30,7 +30,7 @@ The server listens on `0.0.0.0:8080`. `PORT` overrides the port; `WS_URL` overri
 
 - `GET /health`: `{"ok":true}`.
 - `/ws`: JSON text WebSocket messages.
-- `POST /map/:room`: host-only opaque ARWorldMap binary, `Content-Type: application/octet-stream`, `X-Player-Id: <host joined ID>`. Lobby only, 1 byte to 20 MiB, HTTP 204 on success; broadcasts `hasMap=true`.
+- `POST /map/:room`: host-only opaque ARWorldMap binary, `Content-Type: application/octet-stream`, `X-Player-Id: <host joined ID>`. Lobby only, 1 byte to 64 MiB, HTTP 204 on success; broadcasts `hasMap=true`.
 - `GET /map/:room`: room-scoped binary download, 404 before upload. Maps live in memory.
 - `GET /dashboard` and `GET /api/dashboard`: laptop-only connection/ready/phase monitor. `/dashboard/live` is the legacy sampled-frame detector tester.
 
