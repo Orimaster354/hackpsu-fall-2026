@@ -1,9 +1,12 @@
 import Foundation
 
 // UI-side shapes for the screens. They mirror the models in docs/architecture.md but carry
-// distinct names (MapTile, PlayerInfo, MapGrid, MapStation, GameSnapshot) so they cannot collide
-// with `MyApp/Models` when it lands. The integration layer maps wire models onto these and calls
+// distinct names (MapTile, PlayerInfo, MapGrid, MapStation, GameSnapshot) so they do not collide
+// with `MyApp/Models`. The integration layer maps wire models onto these and calls
 // `GameSession.receive(_:)`, so the views do not change.
+//
+// TileSource, StationKind, MeetingReason and Winner are not declared here. They are plain enums
+// of wire strings, and `MyApp/Models` already defines them with the same cases, so the UI uses those.
 //
 // Gaps in docs/architecture.md found while building this:
 //  - `lobby` has no host id, so the host is taken to be players[0], the creator.
@@ -22,11 +25,6 @@ struct MapTile: Hashable, Comparable {
     var y: Int
 
     static func < (a: MapTile, b: MapTile) -> Bool { (a.y, a.x) < (b.y, b.x) }
-}
-
-/// Raw values are the wire strings.
-enum TileSource: String {
-    case ar, manual
 }
 
 /// docs: `Player`.
@@ -73,11 +71,6 @@ struct MapGrid: Equatable {
     }
 }
 
-/// Raw values are the wire strings.
-enum StationKind: String {
-    case task, fix, emergency
-}
-
 /// docs: `TaskType`. Raw values are the wire strings.
 enum TaskKind: String, CaseIterable {
     case shake, tilt, dial, hold, gesture
@@ -102,11 +95,6 @@ enum GamePhase: String {
     case lobby, playing, meeting, ended
 }
 
-/// Raw values are the wire strings.
-enum MeetingReason: String {
-    case report, emergency
-}
-
 /// A vote target: a player id, or "skip" on the wire.
 enum Vote: Hashable {
     case player(String)
@@ -119,11 +107,6 @@ struct MeetingInfo: Equatable {
     var bodyOf: String?
     var endsAt: Date
     var votes: [String: Vote]
-}
-
-/// Raw values are the wire strings.
-enum Winner: String {
-    case crew, impostor
 }
 
 /// docs: server to client `result`.
