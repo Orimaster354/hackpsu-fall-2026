@@ -183,7 +183,8 @@ struct SweepSampler {
     private var startTimestamp: TimeInterval?
     private var yaw = YawAccumulator()
     private var meter = TurnRateMeter()
-    private var lastTaken = -Double.infinity
+    /// Starts at 0, so the first frame is taken one interval in, after the tap that started the sweep has settled.
+    private var lastTaken = 0.0
     private(set) var taken = 0
 
     var yawDegrees: Double { yaw.degrees }
