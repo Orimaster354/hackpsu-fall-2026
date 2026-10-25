@@ -74,7 +74,8 @@ final class RoomScanFlow {
         var warn = false
     }
 
-    static let maxMapBytes = 20 * 1024 * 1024
+    /// Matches the server's ARWorldMap upload cap (server/maps.js, 64 MiB).
+    static let maxMapBytes = 64 * 1024 * 1024
     static let gridWait: Duration = .seconds(8)
 
     // MARK: Observable state
@@ -499,7 +500,7 @@ final class RoomScanFlow {
             let data = try await backend.captureWorldMap { [weak self] note in self?.mapNote = note }
             guard alive(epoch) else { return }
             guard data.count <= Self.maxMapBytes else {
-                throw ScanFlowError.map("The AR world map is \(data.count / 1_048_576) MiB, over the server's 20 MiB limit.")
+                throw ScanFlowError.map("The AR world map is \(data.count / 1_048_576) MiB, over the server's \(Self.maxMapBytes / 1_048_576) MiB limit.")
             }
             mapNote = String(format: "Uploading the world map (%.1f MB)…", Double(data.count) / 1_048_576)
             try await backend.uploadWorldMap(data)
