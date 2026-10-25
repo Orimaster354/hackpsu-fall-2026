@@ -1,9 +1,11 @@
 import ARKit
 import SwiftUI
 
-/// The full-screen view a crew member does a task in, over the live camera when it is available. It picks the Core Motion task for the station's
-/// `task` kind, runs a 15 s clock, and calls `onFinish` once on success. An idle phone runs out
-/// the clock and fails. `onFinish` is what reports `taskDone`, so it is never called on failure.
+/// The full-screen view a crew member does a task in, over the live camera when it is available.
+/// It picks the Core Motion task for the station's `task` kind, runs a 15 s clock, and calls
+/// `onFinish` once on success. An idle phone runs out the clock and fails. `onFinish` is what
+/// reports `taskDone`, which the server only accepts on the station's tile, so a finished task
+/// waits for the player to be back on the tile instead of reporting from the wrong place.
 struct MotionTaskSheet: View {
     let station: MapStation
     let onFinish: () -> Void
@@ -13,6 +15,7 @@ struct MotionTaskSheet: View {
     @State private var camera = CameraFeed()
     @State private var telemetry = TaskTelemetry()
     @Environment(PositionCoordinator.self) private var position
+    @Environment(GameSession.self) private var session
     @State private var attempt = 0
     @State private var progress = 0.0
     @State private var outcome = Outcome.running
@@ -20,7 +23,7 @@ struct MotionTaskSheet: View {
 
     static let timeLimit: TimeInterval = 15
 
-    private enum Outcome { case running, success, timedOut }
+    private enum Outcome { case running, awaitingTile, success, timedOut }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -43,11 +46,17 @@ struct MotionTaskSheet: View {
             sensor.stop()
             camera.stop()
         }
+        .onChange(of: canFinish) { _, canFinish in
+            if canFinish, outcome == .awaitingTile { finish() }
+        }
         .sensoryFeedback(.success, trigger: outcome) { _, new in new == .success }
         .sensoryFeedback(.error, trigger: outcome) { _, new in new == .timedOut }
     }
 
     // MARK: Pieces
+
+    /// True on the station's tile with the lights on, the same rule `completeTask` applies.
+    private var canFinish: Bool { session.canDoTask(at: station) }
 
     /// The AR module's session, when the phone is tracking in the room. Then the camera belongs to
     /// ARKit and the task is drawn on it; otherwise the plain camera feed is used.
@@ -92,8 +101,16 @@ struct MotionTaskSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center)
+            if outcome == .running, !canFinish { offTileNotice }
             clock
         }
+    }
+
+    private var offTileNotice: some View {
+        Label("You are off the task tile. Step back onto it to finish.", systemImage: "location.slash.fill")
+            .font(.system(.footnote, design: .rounded, weight: .bold))
+            .foregroundStyle(Theme.Palette.warning)
+            .multilineTextAlignment(.center)
     }
 
     private var clock: some View {
@@ -140,6 +157,12 @@ struct MotionTaskSheet: View {
         .overlay {
             switch outcome {
             case .running: EmptyView()
+            case .awaitingTile:
+                Label("Step back onto the task tile to finish", systemImage: "location.fill")
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .multilineTextAlignment(.center)
+                    .padding()
             case .success:
                 Label("Task complete", systemImage: "checkmark.circle.fill")
                     .font(.system(.title3, design: .rounded, weight: .bold))
@@ -207,6 +230,12 @@ struct MotionTaskSheet: View {
     private func succeed() {
         guard outcome == .running else { return }
         sensor.stop()
+        telemetry.progress = 1
+        progress = 1
+        if canFinish { finish() } else { outcome = .awaitingTile }
+    }
+
+    private func finish() {
         outcome = .success
         telemetry.state = .success
         telemetry.progress = 1

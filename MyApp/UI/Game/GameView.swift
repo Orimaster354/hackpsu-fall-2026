@@ -8,6 +8,8 @@ struct GameView: View {
     @Environment(PositionCoordinator.self) private var position
     @AppStorage(SettingsKey.showEveryone) private var showEveryone = false
     @State private var taskStation: MapStation?
+    /// The station whose task was just closed. It does not reopen until the player leaves its tile.
+    @State private var snoozedStationID: String?
     @State private var showPosition: Bool
 
     /// `showPositionSheet` is for previews and screenshots.
@@ -35,12 +37,29 @@ struct GameView: View {
         .fullScreenCover(item: $taskStation) { station in
             MotionTaskSheet(station: station) { session.completeTask(at: station) }
         }
+        .onChange(of: session.taskStationHere?.id) { _, _ in openTaskOnArrival() }
+        .onChange(of: session.canDoTaskHere) { _, _ in openTaskOnArrival() }
+        .onChange(of: taskStation) { old, new in
+            if new == nil, let old { snoozedStationID = old.id }
+        }
         .sheet(isPresented: $showPosition) { PositionSheet() }
         .sensoryFeedback(.warning, trigger: session.isAlive) { old, new in old && !new }
         .task(id: session.error) {
             guard session.error != nil, (try? await Task.sleep(for: .seconds(3))) != nil else { return }
             session.dismissError()
         }
+    }
+
+    /// With AR tracking, stepping onto an unfinished task tile opens its task (and the camera),
+    /// once per visit. In manual mode the player taps "Do task" instead, so a map tap never
+    /// launches a task by accident.
+    private func openTaskOnArrival() {
+        let here = session.taskStationHere
+        if here?.id != snoozedStationID { snoozedStationID = nil }
+        guard position.mode == .ar, taskStation == nil, !showPosition,
+              let station = here, station.id != snoozedStationID,
+              session.canDoTask(at: station) else { return }
+        taskStation = station
     }
 
     // MARK: Header and map
