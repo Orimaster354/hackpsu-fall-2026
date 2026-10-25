@@ -8,6 +8,7 @@ struct GameView: View {
     @Environment(PositionCoordinator.self) private var position
     @AppStorage(SettingsKey.showEveryone) private var showEveryone = false
     @State private var taskStation: MapStation?
+    @State private var taskCameraInUse = false
     /// The station whose task was just closed. It does not reopen until the player leaves its tile.
     @State private var snoozedStationID: String?
     @State private var showPosition: Bool
@@ -34,8 +35,12 @@ struct GameView: View {
         } bar: {
             if session.isAlive { actions }
         }
-        .fullScreenCover(item: $taskStation) { station in
+        .fullScreenCover(item: $taskStation, onDismiss: { taskCameraInUse = false }) { station in
             MotionTaskSheet(station: station) { session.completeTask(at: station) }
+                .onAppear { taskCameraInUse = true }
+        }
+        .onChange(of: session.canAttemptTasks) { _, allowed in
+            if !allowed { taskStation = nil }
         }
         .onChange(of: session.taskStationHere?.id) { _, _ in openTaskOnArrival() }
         .onChange(of: session.canDoTaskHere) { _, _ in openTaskOnArrival() }
@@ -106,6 +111,13 @@ struct GameView: View {
         if let grid = session.grid {
             VStack(spacing: 10) {
                 positionPrompt
+                if inDark, taskStation == nil, !taskCameraInUse, position.mode == .ar,
+                   let provider = position.ar as? ARPositionProvider, provider.isSessionRunning {
+                    LightsOutARView(arView: provider.arView, grid: grid, fix: session.fixStation,
+                                    tracking: position.status == .tracking)
+                        .frame(height: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                }
                 RoomMapView(
                     grid: grid,
                     stations: session.stations,
@@ -222,7 +234,7 @@ struct GameView: View {
 
     @ViewBuilder private var crewControls: some View {
         if session.canFixHere, let fix = session.fixStation {
-            HoldToConfirmButton(title: "Hold to fix the lights", duration: 3) { session.fix(fix) }
+            HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) { session.fix(fix) }
                 .accessibilityIdentifier("fixButton")
         } else if let station = session.taskStationHere {
             if session.completedStationIDs.contains(station.id) {

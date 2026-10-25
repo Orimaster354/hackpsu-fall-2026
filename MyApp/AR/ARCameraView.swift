@@ -93,3 +93,62 @@ struct ARCameraView: UIViewRepresentable {
         }
     }
 }
+
+/// Lights-out presentation uses the tracking session's shared camera and server grid.
+/// Manual tiles remain available below this view when tracking is unavailable.
+struct LightsOutARView: View {
+    let arView: ARView
+    let grid: MapGrid
+    let fix: MapStation?
+    let tracking: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            LightsOutCamera(arView: arView, grid: grid, fix: fix, tracking: tracking)
+            RadialGradient(colors: [.black.opacity(0.35), .black.opacity(0.94)],
+                           center: .center, startRadius: 25, endRadius: 210)
+                .allowsHitTesting(false)
+            Label(tracking ? "Find the wrench. Walk to its tile to restore power."
+                           : "Finding your place… Use the map to reach the fix station.",
+                  systemImage: "flashlight.on.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.yellow)
+                .multilineTextAlignment(.center)
+                .padding(16)
+        }
+        .accessibilityLabel("Lights out camera. The wrench marks the fix station.")
+    }
+}
+
+private struct LightsOutCamera: UIViewRepresentable {
+    let arView: ARView
+    let grid: MapGrid
+    let fix: MapStation?
+    let tracking: Bool
+
+    func makeCoordinator() -> ARCameraView.Coordinator { ARCameraView.Coordinator() }
+
+    func makeUIView(context: Context) -> ARView {
+        arView.scene.addAnchor(context.coordinator.root)
+        return arView
+    }
+
+    func updateUIView(_ view: ARView, context: Context) {
+        let root = context.coordinator.root
+        root.children.removeAll()
+        guard tracking, let fix, grid.contains(fix.tile),
+              let icon = context.coordinator.makeIcon(ARStationIcon(
+                id: fix.id, tileX: fix.tile.x, tileY: fix.tile.y, kind: .fix)) else { return }
+        let center = grid.worldCenter(of: fix.tile)
+        let billboard = Entity()
+        billboard.position = SIMD3(Float(center.x), 0, Float(center.z))
+        billboard.components.set(BillboardComponent())
+        billboard.addChild(icon)
+        root.addChild(billboard)
+    }
+
+    static func dismantleUIView(_ view: ARView, coordinator: ARCameraView.Coordinator) {
+        // Detach this overlay only. The tracking owner keeps the AR session running.
+        coordinator.root.removeFromParent()
+    }
+}

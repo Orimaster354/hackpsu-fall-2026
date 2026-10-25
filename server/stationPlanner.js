@@ -4,14 +4,14 @@ const { RoomError, requireAction } = require('./errors');
 const { DEFAULT_GEMINI_MODEL } = require('./gemini');
 const { NOTE } = require('./yoloDetector');
 const PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/station-planning.md'), 'utf8');
-const TASKS = ['hold', 'tilt', 'dial', 'shake', 'gesture', 'hammer'];
+const TASKS = ['hold', 'dial', 'shake', 'gesture', 'hammer'];
 
 function planningCandidates(result) {
   return result.passes.flatMap((pass) => pass.detections.map((detection, index) => ({
     id: `${pass.pass}:${index}`, pass: pass.pass, label: detection.label,
     t: detection.t, box: detection.box, score: detection.confidence ?? null,
     context: (detection.context || []).map(({ label, box, confidence, imageGap }) => ({ label, box, confidence, imageGap })),
-  })).filter((item) => item.label === NOTE && (item.score === null || item.score >= 0.55)));
+  })).filter((item) => item.label === NOTE && (item.score === null || item.score >= 0.50)));
 }
 
 function validatePlan(value, candidates) {
@@ -34,7 +34,7 @@ function validatePlan(value, candidates) {
   });
   requireAction(tasks <= 3 && fixes <= 1, 'PLANNER_INVALID_RESPONSE', 'Choose at most three tasks and one fix candidate.');
   return { status: 'needs_geometry', summary: value.summary.trim(), suggestions,
-    selectionPolicy: { minimumYoloScore: 0.55, candidateLabel: NOTE, maxPerPass: 8,
+    selectionPolicy: { minimumYoloScore: 0.50, candidateLabel: NOTE, maxPerPass: 8,
       contextMetric: 'same-frame box gap / image diagonal; not meters' },
     placementReady: false, placementNote: 'Landmark/task suggestions only. Pose/grid processing, edge placement, 2 m spacing and host review are still required.' };
 }

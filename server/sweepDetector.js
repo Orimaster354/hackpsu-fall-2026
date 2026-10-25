@@ -16,7 +16,7 @@ function validateSweepResult(result,frames,intrinsics){
     if(frame.detections.length)requireAction(frame.width===intrinsics.width && frame.height===intrinsics.height,'SCAN_UPLOAD_INVALID','JPEG dimensions do not match camera intrinsics.');
     const pixelBox=box=>box.map((v,i)=>v*(i%2===0?intrinsics.width:intrinsics.height));
     const detections=frame.detections.map(d=>{
-      requireAction(d.label===NOTE && Number.isFinite(d.confidence) && d.confidence>=0.55 && d.confidence<=1 && validBox(d.box)
+      requireAction(d.label===NOTE && Number.isFinite(d.confidence) && d.confidence>=0.50 && d.confidence<=1 && validBox(d.box)
         && Array.isArray(d.context) && d.context.length<=6,'SCAN_FAILED','Invalid detector note observations.');
       const context=d.context.map(c=>{
         requireAction(CLASSES.includes(c.label) && c.label!==NOTE && validBox(c.box)

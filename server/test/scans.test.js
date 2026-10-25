@@ -142,3 +142,13 @@ test('scan body and per-frame size limits fail before inference',async t=>{
   await post('perimeter',{poses});const body=sweepBody();body.frames[0].jpeg='A'.repeat(819204);
   assert.equal((await post('sweep',body)).body.code,'SCAN_UPLOAD_TOO_LARGE');
 });
+
+test('geometry keeps 0.50-confidence notes through to edge placement',()=>{
+  const observations=structuredClone(fx);
+  for(const frame of observations.frames)for(const detection of frame.detections)detection.confidence=.50;
+  const notes=placeNotes(observations);
+  assert.equal(notes.length,6);
+  assert.ok(notes.every(note=>note.confidence===.50));
+  for(const frame of observations.frames)for(const detection of frame.detections)detection.confidence=.499;
+  assert.deepEqual(placeNotes(observations),[]);
+});

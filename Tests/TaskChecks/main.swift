@@ -51,14 +51,22 @@ do {
     check(model.index == 2 && model.isComplete, "after leveling, the next move counts and the task completes")
 }
 
-// MARK: Steady (hold): back at its original limits
+// MARK: Steady (hold): slightly longer and stricter
 
 func run(_ model: inout SteadyModel, seconds: Double, rot: Double, acc: Double, gz: Double = 0) {
     for _ in 0 ..< Int(seconds * 60) { model.step(sample(gy: -1, gz: gz, rot: rot, acc: acc)) }
 }
 
 do {
-    check(SteadyModel.maxRotation == 0.5 && SteadyModel.maxAcceleration == 0.08, "the hold task keeps its original limits")
+    var short = SteadyModel()
+    run(&short, seconds: 4.1, rot: 0.05, acc: 0.01)
+    check(!short.isComplete, "four seconds no longer completes the hold")
+    var rotation = SteadyModel()
+    run(&rotation, seconds: 6, rot: 0.47, acc: 0.01)
+    check(!rotation.isComplete, "rotation near the old limit now interrupts the hold")
+    var acceleration = SteadyModel()
+    run(&acceleration, seconds: 6, rot: 0.05, acc: 0.075)
+    check(!acceleration.isComplete, "acceleration near the old limit now interrupts the hold")
     var still = SteadyModel()
     run(&still, seconds: SteadyModel.holdSeconds + 0.2, rot: 0.05, acc: 0.01)
     check(still.isComplete && still.steady, "a still phone completes the hold")

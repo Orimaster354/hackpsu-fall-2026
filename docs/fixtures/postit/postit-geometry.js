@@ -83,7 +83,7 @@ function placeObservation({ pose, intrinsics, box, polygon, grid }) {
 
 // Frames: [{ index, t, pose, detections:[{ label, box, confidence }] }]. Returns one entry per physical note:
 // observations whose wall hits are within MERGE_RADIUS_M merge; the strongest observation represents the note.
-function placeNotes({ frames, intrinsics, polygon, grid, minConfidence = 0.55 }) {
+function placeNotes({ frames, intrinsics, polygon, grid, minConfidence = 0.50 }) {
   const observations = [];
   for (const frame of frames) {
     frame.detections.forEach((detection, d) => {

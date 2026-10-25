@@ -13,10 +13,14 @@ test('sweep adapter associates uploaded poses and converts boxes to pixels witho
   const frames=validateSweepResult(raw,input,k);
   assert.equal(frames[0].index,7);assert.deepEqual(frames[0].pose,input[0].pose);
   assert.deepEqual(frames[0].detections[0].box,[768,324,38.4,32.4]);
-  for(const mutate of [r=>{r.frames[0].index=0;},r=>{r.frames[0].detections[0].confidence=.54;},
+  for(const mutate of [r=>{r.frames[0].index=0;},r=>{r.frames[0].detections[0].confidence=.499;},
     r=>{r.frames[0].detections[0].box=[.9,.9,.5,.5];},r=>{r.frames[0].width=320;}]){
     const bad=result();mutate(bad);assert.throws(()=>validateSweepResult(bad,input,k));
   }
+});
+test('sweep accepts notes at the lowered confidence boundary',()=>{
+  const raw=result();raw.frames[0].detections[0].confidence=.50;
+  assert.equal(validateSweepResult(raw,input,k)[0].detections[0].confidence,.50);
 });
 test('sweep worker uses temporary JPEGs, strips the API key and cleans up after success/invalid output/cancel',async()=>{
   for(const mode of ['success','broken','cancel']){

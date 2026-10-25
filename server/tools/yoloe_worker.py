@@ -21,6 +21,8 @@ PROMPTS = ["yellow sticky note", "door", "window", "whiteboard", "light switch",
            "bookshelf", "office desk", "table", "sofa", "chair", "potted plant", "television", "computer monitor", "refrigerator", "sink", "lamp", "picture", "backpack"]
 FPS = 1
 CONFIDENCE = 0.35
+SWEEP_NOTE_CONFIDENCE = 0.50
+SWEEP_NOTE_IMAGE_SIZE = 1280
 MAX_RESULTS = 8
 
 
@@ -279,7 +281,7 @@ def analyze_sweep(model, specs):
         with contextlib.redirect_stdout(sys.stderr):
             # Context classes must not compete with tiny notes for the detector's class score.
             model.set_classes([PROMPTS[0]], note_embeddings)
-            note_result = model.predict(frame, device="cpu", imgsz=960, conf=0.55, iou=0.5, max_det=64, verbose=False)[0]
+            note_result = model.predict(frame, device="cpu", imgsz=SWEEP_NOTE_IMAGE_SIZE, conf=SWEEP_NOTE_CONFIDENCE, iou=0.5, max_det=64, verbose=False)[0]
             model.set_classes(PROMPTS[1:], context_embeddings)
             context_result = model.predict(frame, device="cpu", imgsz=960, conf=0.35, iou=0.5, max_det=64, verbose=False)[0]
         notes, context = [], []
@@ -293,7 +295,7 @@ def analyze_sweep(model, specs):
                         continue
                     item = {"label": label, "box": [x1, y1, x2-x1, y2-y1], "confidence": float(score)}
                     if label == NOTE:
-                        if score >= 0.55:
+                        if score >= SWEEP_NOTE_CONFIDENCE:
                             notes.append(item)
                     else:
                         context.append(item)

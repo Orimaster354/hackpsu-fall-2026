@@ -8,7 +8,7 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 - Players see world-anchored AR icons: a question mark on task tiles and an EMERGENCY text icon on the meeting tile.
 - Four phones join with a 4-letter room code. No QR codes.
 - 1 impostor, 3 crew. Roles are private.
-- Crew do tasks at stations: shake/tilt balance, hold-steady, rotate dial, gesture pattern.
+- Crew do tasks at stations: shake, hold-steady, rotate dial, gesture pattern, hammer.
 - Impostor swipes to kill a player on the SAME tile (25 s cooldown).
 - A dead player leaves their phone on the spot as the body, and may wander. Ghosts do not do tasks.
 - Report or emergency meeting, 30 s vote, ejection, win check.
