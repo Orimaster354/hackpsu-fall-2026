@@ -161,12 +161,12 @@ struct NetDebugView: View {
             return SweepFrame(index: i, t: Double(i) * 0.4, pose: pose, jpegData: jpeg)
         }
         let intrinsics = CameraIntrinsics(fx: 1450, fy: 1450, cx: 960, cy: 540, width: 1920, height: 1080)
-        note("uploading (frames.count) sweep frames")
+        note("uploading \(frames.count) sweep frames")
         let scan = ScanClient(client: client)
         Task {
             do {
                 let result = try await scan.uploadSweep(vantage: Tile(x: 2, y: 2), intrinsics: intrinsics, frames: frames)
-                note("sweep ok: (result.notesFound) notes, (result.stations) stations, warnings (result.warnings)")
+                note("sweep ok: \(result.notesFound) notes, \(result.stations) stations, warnings \(result.warnings)")
             } catch {
                 note("sweep failed: (error)")
             }
