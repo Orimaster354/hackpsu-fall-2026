@@ -12,6 +12,7 @@ struct MotionTaskSheet: View {
     let onFinish: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.gameAudio) private var audio
     @State private var sensor = MotionSensor()
     @State private var camera = CameraFeed()
     @State private var telemetry = TaskTelemetry()
@@ -301,9 +302,11 @@ struct MotionTaskSheet: View {
         sensor.start()
         try? await Task.sleep(for: .seconds(Self.timeLimit))
         guard !Task.isCancelled, outcome == .running else { return }
+        guard session.canAttemptTasks else { cancelAttempt(); return }
         sensor.stop()
         telemetry.state = .timedOut
         outcome = .timedOut
+        audio?.play(.taskFailed)
     }
 
     private func succeed() {
@@ -318,6 +321,7 @@ struct MotionTaskSheet: View {
         guard session.canAttemptTasks, canFinish,
               outcome == .running || outcome == .awaitingTile else { return }
         outcome = .success
+        audio?.play(.taskComplete)
         flashes += 1
         telemetry.state = .success
         telemetry.progress = 1
