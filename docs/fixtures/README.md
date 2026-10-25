@@ -1,0 +1,12 @@
+# Fixtures
+
+A 5 x 5 m room, edge walk, generated to match `docs/architecture.md`.
+
+- `poses.json`: `[{t, x, y, z, qx, qy, qz, qw}]` at 10 Hz, 201 samples over about 20 s. ARKit world frame: y up, camera forward is -z, origin is the start point. The path is the square (0,0) to (4,4), 0.5 m inside the walls, one lap, closing back at (0,0). Camera yaw faces the nearest wall (segments 1 to 4: 0, -90, 180, +90 degrees about y). Yaw changes instantly at corners; real data will be smoother.
+- `intrinsics.json`: `{fx, fy, cx, cy, width, height}` for a 1920 x 1080 frame.
+- `setup.json`: the expected server output for that walk, as a `setup` message. `originX/originZ` is -0.5, so the walls bound tiles (0,0) to (4,4). Four task stations on edge tiles at least 2 apart, one fix station, one emergency station at the center (2,2).
+
+Server (C): feeding `poses.json` should produce a 5 x 5 grid with 16 edge tiles. Station tiles depend on Gemini and will differ.
+UI and AR (A, B): render `setup.json` directly to build the map and icons without a scan.
+
+These are synthetic, not recorded from a phone. Replace `poses.json` with a real walk once A can capture one.
