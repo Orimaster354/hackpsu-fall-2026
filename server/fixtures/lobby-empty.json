@@ -1,0 +1,11 @@
+{
+  "t": "lobby",
+  "hostId": "example-host",
+  "players": [
+    {"id":"example-host","name":"Host","tile":null,"alive":true,"tileSource":"manual","ready":false,"connected":true}
+  ],
+  "grid": null,
+  "stations": [],
+  "hasMap": false,
+  "setupConfirmed": false
+}

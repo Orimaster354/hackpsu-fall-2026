@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROOMSHIFT · Live scan tester</title><link rel="stylesheet" href="/dashboard/style.css"><link rel="stylesheet" href="/dashboard/live.css"><script src="/dashboard/live.js" defer></script></head>
+<body>
+<header><a class="brand" href="/dashboard"><span class="brand-icon">R</span>ROOMSHIFT <span class="slash">/</span><span class="subtitle">LIVE SCAN TESTER</span></a><span id="status" class="badge muted" role="status">IDLE</span></header>
+<main>
+  <div class="heading"><div><p class="eyebrow">HOST ROOM SETUP · FLASH-LITE</p><h1>Watch the room take shape.</h1><p class="description">Replay a video as a continuous camera feed. Frames stream at up to 1 FPS.</p></div><a class="back" href="/dashboard">← Mission control</a></div>
+  <section class="panel controls"><label class="file-label">Choose test video<input id="file" type="file" accept="video/*"></label><button id="server-clip">Use server test clip</button><button id="start" class="primary" disabled>Start live scan</button><button id="stop" disabled>Stop</button><span id="room" class="hint">Creates a host-only test lobby</span></section>
+  <p id="message" class="helper" role="status">Select a non-sensitive video. Starting sends sampled frames through this backend to Google Gemini Flash-Lite.</p>
+  <section class="stats"><article><span>Frames sent</span><strong id="sent">0</strong><small>Newest waiting frame replaces older frames</small></article><article><span>Analyzed frames</span><strong id="analyzed">0</strong><small>Validated JSON responses</small></article><article><span>Objects in latest frame</span><strong id="objects">0</strong><small>Concrete labels only</small></article><article><span>Latest latency</span><strong id="latency">—</strong><small>Frame capture to result</small></article></section>
+  <div class="video-grid"><section class="panel"><p class="eyebrow">CONTINUOUS INPUT</p><h2>Video feed</h2><video id="video" muted playsinline controls></video><p class="footnote">The file plays locally. Only sampled JPEG frames go to the backend; no MP4 upload or microphone is used.</p></section><section class="panel"><p class="eyebrow">MATCHED FRAME</p><h2>Latest analyzed frame</h2><canvas id="result" width="768" height="432"></canvas><p id="frame-info" class="footnote">Detections are drawn on their captured frame, not on a later moving video frame.</p><ul id="labels"></ul></section></div>
+  <section class="panel activity"><p class="eyebrow">SESSION EVENTS</p><ol id="events"><li class="quiet">Ready for a local video.</li></ol></section>
+  <footer><span>HOST ONLY · LOBBY ONLY · 90 SECOND SESSION LIMIT</span><span>Gemini key stays on the server</span></footer>
+</main></body></html>
