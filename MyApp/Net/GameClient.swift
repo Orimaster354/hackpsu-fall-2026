@@ -274,7 +274,7 @@ final class GameClient {
 
     enum MapError: Error { case notInRoom, badURL, http(Int) }
 
-    /// `POST /map/:room`. Host only, lobby only, 1 byte to 20 MiB.
+    /// `POST /map/:room`. Host only, lobby only, 1 byte to 64 MiB.
     func uploadMap(_ data: Data) async throws {
         guard let room = roomCode, let id = playerId else { throw MapError.notInRoom }
         guard let endpoint = endpointOverride ?? ServerConfig.current(defaults: defaults),

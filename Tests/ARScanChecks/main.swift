@@ -564,7 +564,7 @@ do {
     flow.startSweep()
     await feed(flow, sweepFrames(rate: 12, seconds: 30, from: clock), buffer: sweepBuffer)
     await settle("oversize map refused") { flow.step == .savingMap && flow.mapFailed }
-    check(flow.message?.contains("20 MiB") == true, "a map over 20 MiB is refused before upload", flow.message ?? "-")
+    check(flow.message?.contains("64 MiB") == true, "a map over 64 MiB is refused before upload", flow.message ?? "-")
     check(backend.mapPayloads.isEmpty, "oversize map never sent")
 }
 
