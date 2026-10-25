@@ -1,5 +1,13 @@
 # Integration notes (Owner D)
 
+## Current backend integration audit
+
+The notes below describe the earlier Phase 0 implementation and its historical conflicts. The latest main/backend merge retains 42 passing backend tests and the approved `playable`/`edge` grid, `editStation`, `confirmSetup`, and immutable configured emergency station. The two-pass video pipeline is the selected design. A local full-video Gemini diagnostic exists; gameplay scan upload/geometry/placement remains pending. Earlier claims below about missing setup events, fixed emergency tile, and client-owned room geometry are superseded by `docs/architecture.md` and `server/CLIENT_INTEGRATION.md`.
+
+D's existing `LobbySnapshot.grid` is non-optional, while normal rooms send null before setup. The Swift lobby/setup models also omit `setupConfirmed`, and NetDebugView lacks a confirmation action before start. Align those on D's branch before claiming full app/server compatibility. Main's Swift files were preserved unchanged in this backend rebase; Mac compilation and physical phone tests remain separate acceptance checks. Use the server handoff JSON fixtures and `npm run start:manual` for manual integration.
+
+Latest main also supplies B's UI. `ContentView` mounts `RootView()`, which defaults to a mock session. The real GameClient-to-GameSession adapter is still required. B's full setup review already has a confirmation action; it needs the server acknowledgement wired back into UI state. Preserve B's completed ghost/setup-review/icon implementation checkboxes, while keeping actual four-device gameplay and task-motion acceptance pending.
+
 Status as of the Phase 0 pass on `feature/integration`. Swift code here was written on Windows and has **not been compiled or run**. First action on a Mac: run the round-trip script (see below) and build the app.
 
 ## What exists
