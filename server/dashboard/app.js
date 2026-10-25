@@ -15,6 +15,10 @@ function log(message) {
 }
 
 function observe(data) {
+  const activeRoom = data.rooms.findLast((room) => room.players.some((player) => player.connected)
+    && (!previous || previous.startedAt !== data.startedAt
+      || !previous.rooms.some((old) => old.code === room.code && old.players.some((player) => player.connected))));
+  if (activeRoom) selectedRoom = activeRoom.code;
   if (!previous || previous.startedAt !== data.startedAt) {
     log(previous ? 'Server restarted. In-memory rooms have reset.' : 'Connected to the backend monitor.');
   } else {
@@ -41,10 +45,13 @@ function render() {
   $('ready-count').textContent = players.filter((player) => player.connected && player.ready).length;
   $('registered-count').textContent = `${players.length} registered across all rooms`;
   $('socket-count').textContent = snapshot.connections;
+  $('connection-urls').textContent = (snapshot.connectionUrls || []).join('\n') || 'No LAN address found. Check Wi-Fi.';
+  const connectedPlayers = players.filter((player) => player.connected).length;
+  $('connection-summary').textContent = `${snapshot.connections} open sockets / ${connectedPlayers} joined players. A socket appears in a room after create or join succeeds.`;
   const seconds = Math.floor((snapshot.now - snapshot.startedAt) / 1000);
   $('uptime').textContent = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
   if (!snapshot.rooms.some((room) => room.code === selectedRoom)) selectedRoom = snapshot.rooms.at(-1)?.code;
-  $('room-tabs').innerHTML = snapshot.rooms.map((room) => `<button data-room="${escape(room.code)}" aria-pressed="${room.code === selectedRoom}">${escape(room.code)}</button>`).join('');
+  $('room-tabs').innerHTML = snapshot.rooms.map((room) => `<button data-room="${escape(room.code)}" aria-pressed="${room.code === selectedRoom}">${escape(room.code)} · ${room.players.filter((player) => player.connected).length}/4 online</button>`).join('');
   const room = snapshot.rooms.find((room) => room.code === selectedRoom);
   if (!room) {
     $('room-content').innerHTML = '<div class="empty"><span class="empty-icon">⌘</span><h3>Waiting for your first crew</h3><p>Create a room from an iPhone or launch the test crew.</p></div>';

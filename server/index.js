@@ -1,6 +1,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const WebSocket = require('ws');
 const { RoomError, RoomManager, send } = require('./rooms');
 const { handleMap } = require('./maps');
@@ -60,7 +61,12 @@ function createAppServer(options = {}) {
           })),
         }));
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ startedAt, now: Date.now(), connections: sockets.clients.size, rooms: roomList }));
+        const port = server.address().port;
+        const addresses = [...new Set(Object.values(os.networkInterfaces()).flat()
+          .filter((entry) => entry && entry.family === 'IPv4' && !entry.internal)
+          .map((entry) => entry.address))];
+        response.end(JSON.stringify({ startedAt, now: Date.now(), connections: sockets.clients.size,
+          connectionUrls: addresses.map((address) => `ws://${address}:${port}/ws`), rooms: roomList }));
       } else {
         const asset = dashboardAssets.get(route);
         response.writeHead(200, { 'content-type': asset.type, 'content-length': asset.body.length });
