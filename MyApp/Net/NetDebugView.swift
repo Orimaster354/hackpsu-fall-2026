@@ -63,11 +63,14 @@ struct NetDebugView: View {
                 }
             }
             .navigationTitle("Net debug")
+            .onChange(of: client.status) { _, new in note("status: \(statusLabel(new))") }
         }
     }
 
-    private var statusText: String {
-        switch client.status {
+    private var statusText: String { statusLabel(client.status) }
+
+    private func statusLabel(_ status: GameClient.Status) -> String {
+        switch status {
         case .disconnected: return "disconnected"
         case .connecting: return "connecting"
         case .connected: return "connected"
