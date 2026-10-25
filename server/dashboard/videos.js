@@ -13,7 +13,7 @@ function selectDetector() {
   const selected = detectorConfig.detectors?.[engine()] || detectorConfig;
   configured = selected.configured;
   $('configuration').textContent = engine() === 'yoloe'
-    ? `Model: ${selected.model} · Local CPU · 1 FPS · score threshold 0.35 · ${configured ? 'Ready' : 'Install and warm up the YOLOE runtime, then restart'}`
+    ? `Model: ${selected.model} · Local CPU · wall sticky notes + context · 1 FPS · score threshold 0.35 · ${configured ? 'Ready' : 'Install and warm up the YOLOE runtime, then restart'}`
     : `Model: ${selected.model} · ${configured ? 'Server API key configured' : 'Set GEMINI_API_KEY in server/.env and restart'}${selected.quality ? ` · High detail, ${selected.quality.fps} FPS · Videos analyzed separately` : ''}`;
   $('upload-notice').textContent = engine() === 'yoloe'
     ? 'YOLOE processes videos locally. If station reasoning is checked, only detection labels/scores/boxes/IDs go to Gemini; no videos or frame images are sent. Temporary local copies are removed after the run.'
@@ -114,7 +114,8 @@ function showResult(data) {
     for (const [index, detection] of passResult.detections.entries()) {
       const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-pressed', 'false');
       button.dataset.candidateId = `${passResult.pass}:${index}`;
-      button.textContent = `${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''}`;
+      const context = detection.context || [];
+      button.textContent = `${passResult.pass}:${index} · ${detection.t.toFixed(2)}s · ${detection.label}${Number.isFinite(detection.confidence) ? ` · score ${detection.confidence.toFixed(2)}` : ''} · ${context.length ? context.map((item) => `near ${item.label} (image gap ${item.imageGap.toFixed(3)})`).join(', ') : 'wall context unknown'}`;
       button.addEventListener('click', () => {
         for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-pressed', 'true');
@@ -137,7 +138,7 @@ function showResult(data) {
     $('planning-summary').textContent = data.planning.summary;
     for (const suggestion of data.planning.suggestions) {
       const item = document.createElement('li');
-      item.textContent = `${suggestion.label} · ${suggestion.pass} ${suggestion.t.toFixed(2)}s · ${suggestion.kind}/${suggestion.task}: ${suggestion.reason} `;
+        item.textContent = `${suggestion.candidateId} · ${suggestion.label} · ${suggestion.pass} ${suggestion.t.toFixed(2)}s · ${suggestion.kind}/${suggestion.task}: ${suggestion.reason} `;
       const inspect = document.createElement('button'); inspect.type = 'button'; inspect.textContent = 'Inspect frame';
       inspect.addEventListener('click', () => {
         const target = document.querySelector(`[data-candidate-id="${suggestion.candidateId}"]`); target?.click();

@@ -7,12 +7,17 @@ const { createYoloDetector, validateYoloResult, MODEL } = require('../yoloDetect
 const { createAppServer } = require('../index');
 const videos = ['overview', 'edge'].map((pass) => ({ pass, bytes: Buffer.from('test video'), duration: 3, mimeType: 'video/mp4' }));
 const result = () => ({ model: MODEL, passes: videos.map(({ pass, duration }) => ({ pass, duration,
-  framesAnalyzed: 3, timestampSource: 'decoder presentation time', detections: [{ label: 'chair', t: 1,
-    confidence: 0.8, frameIndex: 10, box: [0.1, 0.2, 0.3, 0.4] }] })) });
+  framesAnalyzed: 3, timestampSource: 'decoder presentation time', detections: [{ label: 'sticky note', t: 1,
+    confidence: 0.8, frameIndex: 10, box: [0.1, 0.2, 0.03, 0.04],
+    context: [{ label: 'whiteboard', box: [0.2, 0.2, 0.3, 0.4], confidence: 0.8, imageGap: 0.05 }] }] })) });
 
 test('YOLOE adapter validates decoded-frame timestamps, class scores and normalized boxes', () => {
   assert.equal(validateYoloResult(result(), videos).passes[0].detections[0].confidence, 0.8);
-  for (const change of [{ t: 4 }, { box: [0.9, 0.1, 0.5, 0.5] }, { label: 'person' }, { confidence: 0.2 }, { frameIndex: -1 }, { frameJpeg: 'not base64' }]) {
+  assert.equal(validateYoloResult(result(), videos).passes[0].detections[0].context[0].label, 'whiteboard');
+  for (const change of [{ t: 4 }, { box: [0.9, 0.1, 0.5, 0.5] }, { label: 'person' }, { label: 'door' },
+    { context: [{ label: 'sticky note', box: [0, 0, 0.1, 0.1], confidence: 0.9, imageGap: 0.1 }] },
+    { context: [{ label: 'door', box: [0, 0, 0.1, 0.1], confidence: 0.9, imageGap: 3 }] },
+    { confidence: 0.2 }, { frameIndex: -1 }, { frameJpeg: 'not base64' }]) {
     const bad = result(); Object.assign(bad.passes[0].detections[0], change);
     assert.throws(() => validateYoloResult(bad, videos), { code: 'YOLOE_INVALID_RESPONSE' });
   }

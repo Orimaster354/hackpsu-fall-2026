@@ -4,7 +4,7 @@ An Among Us-inspired game played in a real room on four iPhones. Players walk to
 
 ## MVP
 - Host records two videos with a pose log (an overview, then a walk along the walls) and saves an ARWorldMap. The app does no geometry.
-- The planned scan processor builds the room polygon and a 1 m tile grid. YOLOE detects objects; Gemini suggests task landmarks from detection metadata. Server geometry places stations on edge tiles and an emergency tile near the center; host reviews and edits. Detection/reasoning is available in the developer dashboard; scan geometry remains pending.
+- The planned scan processor builds the room polygon and a 1 m tile grid. YOLOE detects wall Post-it notes and contextual wall features; Gemini chooses note observations as task candidates using nearby visual cues. Server geometry places stations on edge tiles and an emergency tile near the center; host reviews and edits. The diagnostic is implemented; real-note accuracy and scan geometry remain pending.
 - Players see world-anchored AR icons: a question mark on task tiles and an EMERGENCY text icon on the meeting tile.
 - Four phones join with a 4-letter room code. No QR codes.
 - 1 impostor, 3 crew. Roles are private.
