@@ -60,6 +60,7 @@ test('four fake clients share one lobby and a fifth is rejected', async (t) => {
 
   for (const client of clients.slice(0, 4)) {
     const lobby = await client.waitFor((m) => m.t === 'lobby' && m.players.length === 4);
+    assert.equal(lobby.hostId, host.playerId);
     assert.deepEqual(lobby.players.map((player) => player.name), [
       'Host', 'Player 2', 'Player 3', 'Player 4',
     ]);
@@ -107,6 +108,7 @@ test('readiness and disconnect/reconnect status synchronize without losing the p
   const joined = await replacement.waitFor((m) => m.t === 'joined');
   const lobby = await replacement.waitFor((m) => m.t === 'lobby');
   assert.equal(joined.playerId, first.playerId);
+  assert.equal(lobby.hostId, first.playerId);
   assert.equal(lobby.players.length, 2);
   assert.equal(lobby.players.find((player) => player.id === first.playerId).ready, false);
   assert.equal(lobby.players.find((player) => player.id === first.playerId).connected, true);
