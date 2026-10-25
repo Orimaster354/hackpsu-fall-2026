@@ -27,6 +27,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var session: GameSession
     @State private var position: PositionCoordinator
+    @State private var deathTrigger = 0
     @State private var homePath: [HomeRoute]
     private let preview: ScreenPreview
     private let scanAction: RoomScanAction?
@@ -71,6 +72,9 @@ struct RootView: View {
             screen
                 .id(session.stage)
                 .transition(Motion.screen)
+            DeathEffect(trigger: deathTrigger)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .animation(.easeOut(duration: 0.3), value: session.stage)
         .environment(session)
@@ -78,6 +82,10 @@ struct RootView: View {
         .environment(\.startRoomScan, scanAction)
         .preferredColorScheme(.dark)
         .tint(Theme.Palette.crew)
+        .onChange(of: session.isAlive) { old, new in
+            if old && !new { deathTrigger += 1 }
+        }
+        .sensoryFeedback(.error, trigger: deathTrigger)
         .onChange(of: session.stage) {
             // Once in a room, forget the Join screen so leaving the room lands on Home.
             if session.stage != .home {

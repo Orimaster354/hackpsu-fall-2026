@@ -29,8 +29,11 @@ extension GameSession {
 
     var canDoTaskHere: Bool { taskStationHere.map(canDoTask(at:)) ?? false }
 
+    /// Tasks are interrupted by sabotage, death, or leaving the playing phase, even off tile.
+    var canAttemptTasks: Bool { role == .crew && isAlive && !lightsOut && phase == .playing }
+
     func canDoTask(at station: MapStation) -> Bool {
-        role == .crew && isAlive && !lightsOut && phase == .playing
+        canAttemptTasks
             && station.kind == .task && station.tile == myTile
             && !completedStationIDs.contains(station.id)
     }

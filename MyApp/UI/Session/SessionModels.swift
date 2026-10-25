@@ -81,6 +81,9 @@ struct MapGrid: Equatable {
 /// docs: `TaskType`. Raw values are the wire strings.
 enum TaskKind: String, CaseIterable {
     case shake, tilt, dial, hold, gesture, hammer
+
+    /// Tilt stays readable for older rooms; it is no longer offered or assigned.
+    static var availableTasks: [TaskKind] { allCases.filter { $0 != .tilt } }
 }
 
 /// docs: `Station`.

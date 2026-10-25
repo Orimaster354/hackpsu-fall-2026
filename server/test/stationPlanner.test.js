@@ -53,3 +53,13 @@ test('planner shortlist excludes weak notes and furniture but retains multiple n
   ] }, { pass: 'edge', detections: [{ label: 'sticky note', t: 3, box: [0, 0, 0.02, 0.02], confidence: 0.9 }] }] });
   assert.deepEqual(candidates.map((item) => item.id), ['overview:0', 'edge:0']);
 });
+
+// The confidence accepted by the detector must survive the planner shortlist too.
+test('planner retains notes at 0.50 but excludes scores below the boundary', () => {
+  const candidates = planningCandidates({ passes: [{ pass: 'overview', detections:
+    [0.499, 0.50, 0.54].map(confidence => ({label:'sticky note',t:1,box:[0,0,.02,.02],confidence}))
+  }] });
+  assert.deepEqual(candidates.map(item=>item.id), ['overview:1', 'overview:2']);
+  const plan=validatePlan({summary:'Boundary check',suggestions:[]}, candidates);
+  assert.equal(plan.selectionPolicy.minimumYoloScore, .50);
+});

@@ -15,6 +15,13 @@ const wsUrl = base.replace(/^http/, 'ws') + '/ws';
 const poses = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'poses.json'), 'utf8'));
 const sweep = JSON.parse(fs.readFileSync(path.join(__dirname, 'sweep-observations.json'), 'utf8'));
 const jpeg = fs.readFileSync(path.join(__dirname, 'tiny-frame.jpg')).toString('base64');
+// The transport-test JPEG is 320x240, unlike the 1920x1080 geometric fixture.
+// Scale calibration to the pixels actually uploaded. This remains synthetic test input.
+const intrinsics = { ...sweep.intrinsics, width: 320, height: 240,
+  fx: sweep.intrinsics.fx * 320 / sweep.intrinsics.width,
+  fy: sweep.intrinsics.fy * 240 / sweep.intrinsics.height,
+  cx: sweep.intrinsics.cx * 320 / sweep.intrinsics.width,
+  cy: sweep.intrinsics.cy * 240 / sweep.intrinsics.height };
 
 let failures = 0;
 const check = (ok, name, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok || !detail ? '' : ' -> ' + detail}`); if (!ok) failures++; };
@@ -52,7 +59,7 @@ const expectError = (r, status, code, name) => check(r.status === status && r.js
 
   // --- rejected requests ---
   expectError(await post('perimeter', room, joiner.id, { poses }), 403, 'HOST_ONLY', 'perimeter by a non-host is HOST_ONLY (403)');
-  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics: sweep.intrinsics, frames: [] }), 409, 'SETUP_MISSING', 'sweep before perimeter is SETUP_MISSING (409)');
+  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics, frames: [] }), 409, 'SETUP_MISSING', 'sweep before perimeter is SETUP_MISSING (409)');
   expectError(await post('perimeter', room, host.id, { poses: poses.slice(0, 10) }), 400, 'SCAN_UPLOAD_INVALID', 'too few perimeter samples is SCAN_UPLOAD_INVALID (400)');
   expectError(await post('perimeter', room, host.id, '{not json'), 400, 'SCAN_UPLOAD_INVALID', 'malformed JSON is SCAN_UPLOAD_INVALID (400)');
   expectError(await post('perimeter', room, host.id, { poses: poses.slice(0, 120) }), 422, 'SCAN_FAILED', 'an open loop is SCAN_FAILED (422)');
@@ -77,12 +84,12 @@ const expectError = (r, status, code, name) => check(r.status === status && r.js
 
   // --- sweep ---
   const frames = sweep.frames.map((f) => ({ index: f.index, t: f.t, pose: f.pose, jpeg }));
-  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics: sweep.intrinsics, frames: frames.slice(0, 3) }), 400, 'SCAN_UPLOAD_INVALID', 'a sweep with 3 frames is SCAN_UPLOAD_INVALID (400)');
-  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics: sweep.intrinsics,
+  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics, frames: frames.slice(0, 3) }), 400, 'SCAN_UPLOAD_INVALID', 'a sweep with 3 frames is SCAN_UPLOAD_INVALID (400)');
+  expectError(await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics,
     frames: frames.map((f, i) => ({ ...f, pose: { ...f.pose, qw: i === 5 ? 'x' : f.pose.qw } })) }), 400, 'SCAN_UPLOAD_INVALID', 'a non-numeric pose is SCAN_UPLOAD_INVALID (400)');
 
   host.frames.length = 0;
-  const s = await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics: sweep.intrinsics, frames });
+  const s = await post('sweep', room, host.id, { vantage: { x: 2, y: 2 }, intrinsics, frames });
   // Without YOLOE installed the real server cannot run the sweep. That is an environment gap, not a contract failure.
   const noDetector = s.status === 422 && /YOLOE is not ready/.test(s.json?.message || '');
   if (noDetector) console.log('skip  sweep success checks: YOLOE is not installed on this server. Run `node server/tools/testSweep.js --fixture` for the detector-free path.');

@@ -58,10 +58,10 @@ POST /scan/:room/sweep              header X-Player-Id: <host id>      body <= 6
 1. **Polygon.** Project the perimeter path to the floor (x, z), simplify (Douglas-Peucker, 0.15 m), require the endpoints within 0.75 m horizontal Euclidean distance (close the loop), require area >= 4 m^2, then offset outward by `WALL_OFFSET_M = 0.5` (tunable; the host walks about that far from the wall). A convex or mildly non-convex room is the target; a self-crossing path is `SCAN_FAILED`.
 2. **Grid.** Origin = polygon bounding-box minimum corner. Tiles whose center is inside the polygon are `playable`. A playable tile whose square touches the polygon boundary, or has a non-playable neighbor, is `edge`.
 3. **Emergency.** The playable tile closest to the polygon centroid. Immutable, one per room.
-4. **Detect.** Run YOLOE (text prompt `yellow sticky note`) on every sweep frame. Default checkpoint is YOLOE-26 Large (`yoloe-26l-seg.pt`); `YOLOE_MODEL` can explicitly select Small, Medium, Large or Extra Large. Keep observations with score >= 0.55, with same-frame context (`label, box, confidence, imageGap`) as already implemented. Color is not independently verified. Larger capacity has not yet demonstrated better note recall in real-room acceptance; CPU processing is slower. See `server/README.md` for measured timings and the client timeout dependency.
+4. **Detect.** Run YOLOE (text prompt `yellow sticky note`) on every sweep frame. Default checkpoint is YOLOE-26 Large (`yoloe-26l-seg.pt`); `YOLOE_MODEL` can explicitly select Small, Medium, Large or Extra Large. Use 1280 px note inference (960 px for context) and keep observations with score >= 0.50, with same-frame context (`label, box, confidence, imageGap`) as already implemented. Color is not independently verified. Larger capacity has not yet demonstrated better note recall in real-room acceptance; CPU processing is slower. See `server/README.md` for measured timings and the client timeout dependency.
 5. **Place.** For each observation: box center to camera ray (intrinsics), rotate by the frame pose, project to the floor plane, intersect with the polygon boundary, step 1 cm back inside, floor to a tile, snap to the nearest edge tile. Ignore rays that are mostly vertical or farther than 15 m. Merge observations whose wall hits are within 0.75 m into one physical note; the strongest observation is its representative. Reference code and a test: `docs/fixtures/postit/postit-geometry.js`, `check-geometry.js`.
 6. **Rank.** Gemini gets the deduplicated notes (ids `sweep:<n>`) as candidates and returns up to 3 task and 1 fix suggestions, most useful first. Prompt: `server/prompts/station-planning.md`. It sees no coordinates or tiles.
-7. **Select.** Walk Gemini's suggestions in order and keep a pick only if its tile is at least 2 m (Euclidean, tile centers) from every kept pick and is not the emergency tile. Then backfill from the remaining notes by descending score until there are 3 task and 1 fix, or no notes remain. Backfilled and fallback task types rotate through `hold, tilt, dial, shake`. If Gemini is unavailable or invalid, skip step 6 and rank by score only; setup must never fail because of Gemini. The fix station is the last pick when Gemini gave none.
+7. **Select.** Walk Gemini's suggestions in order and keep a pick only if its tile is at least 2 m (Euclidean, tile centers) from every kept pick and is not the emergency tile. Then backfill from the remaining notes by descending score until there are 3 task and 1 fix, or no notes remain. Backfilled and fallback task types rotate through `hold, dial, shake, gesture, hammer`. If Gemini is unavailable or invalid, skip step 6 and rank by score only; setup must never fail because of Gemini. The fix station is the last pick when Gemini gave none.
 8. **Name.** Station id `note-<n>`; name `Note by <top context label>` or `Wall note`.
 9. Broadcast `setup` (draft, `setupConfirmed=false`). The host reviews and can move, delete or add stations on edge tiles with `editStation`, then `confirmSetup`. Fewer than 4 stations is allowed; the host fills the gap or plays with fewer tasks.
 
@@ -95,6 +95,8 @@ GameState   { phase, players: [Player], tasksDone: Int, tasksTotal: Int,
 MeetingState{ reason: "report"|"emergency", bodyOf: String?, endsAt: Int, votes: { [id]: id|"skip" } }
 ```
 `tasksTotal` counts tasks for living crew only. Ghosts do not do tasks. Times are epoch ms.
+Tilt is legacy decode-only on iOS and plays hold-steady; new station selection and server setup validation allow only shake, dial, hold, gesture and hammer.
+
 The emergency station's required `task` uses `hold` as an ignored placeholder; clients branch on `kind` and never launch a task for it.
 
 ## Protocol
@@ -146,7 +148,8 @@ On join/reconnect the server sends `joined`, `setup` if available, and the curre
 - Report: reporter alive and on same tile as the body. Emergency: once per player, 3 total.
 - Meeting: 30 s vote; more than half of all living players must vote for a player to eject them; ties, skips and minority votes eject no one.
 - Win: crew when `tasksDone >= tasksTotal` or impostor ejected; impostor when alive crew <= alive impostors.
-- Lights out: `lightsOut=true`, crew tasks rejected until `fix` on the fix station; sabotage cooldown 45 s.
+- Lights out: `lightsOut=true`, crew tasks rejected until `fix` on the fix station; sabotage cooldown 45 s. Active task screens stop their sensors and close immediately on lights-out, death or leaving the playing phase; partial progress is discarded. AR mode darkens the shared camera view and shows a world-anchored wrench at the fix tile (hidden when tracking is unavailable); the manual map remains available. Hold the fix button for 3.5 s to send the fix intent.
+- Elimination triggers one red impact overlay fading above the ghost/end screen. Hold-steady requires 5 s upright with rotation below 0.45 rad/s and user acceleration below 0.07 g.
 - Roles: random, 1 impostor for 4 players (count is a constant `IMPOSTORS`).
 
 ## Detection and task reasoning

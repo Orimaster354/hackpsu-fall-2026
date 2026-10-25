@@ -20,14 +20,15 @@ class OverlapTests(unittest.TestCase):
             def cpu(self): return self
             def tolist(self): return self.values
         class Model:
-            def __init__(self): self.calls = []
+            def __init__(self): self.calls = []; self.options = []
             def get_text_pe(self, labels): return labels
             def set_classes(self, labels, embeddings): self.labels = labels
             def predict(self, frame, **options):
                 self.calls.append(self.labels)
+                self.options.append(options)
                 if len(self.labels) != 1: return [SimpleNamespace(boxes=None)]
-                boxes = [[0.02+i*.09, 0.2, 0.05+i*.09, 0.23] for i in range(10)]
-                return [SimpleNamespace(boxes=SimpleNamespace(xyxyn=Values(boxes), conf=Values([0.8]*10), cls=Values([0]*10)))]
+                boxes = [[0.02+i*.09, 0.2, 0.05+i*.09, 0.23] for i in range(11)]
+                return [SimpleNamespace(boxes=SimpleNamespace(xyxyn=Values(boxes), conf=Values([0.50]+[0.8]*9+[0.499]), cls=Values([0]*10)))]
         model = Model()
         with tempfile.TemporaryDirectory() as directory:
             filename = str(Path(directory)/'frame.jpg')
@@ -37,6 +38,10 @@ class OverlapTests(unittest.TestCase):
         self.assertEqual([frame["index"] for frame in frames], [7, 9])
         self.assertEqual([len(frame["detections"]) for frame in frames], [10, 10])
         self.assertEqual(len(model.calls), 4)
+        self.assertEqual(model.options[0]['imgsz'], 1280)
+        self.assertEqual(model.options[0]['conf'], 0.50)
+        self.assertEqual(model.options[1]['imgsz'], 960)
+        self.assertEqual(model.options[1]['conf'], 0.35)
         self.assertEqual(model.calls[0], ["yellow sticky note"])
         self.assertNotIn("yellow sticky note", model.calls[1])
 

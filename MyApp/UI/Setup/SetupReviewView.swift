@@ -78,7 +78,7 @@ struct SetupReviewView: View {
         let count = session.taskStations.count
         // A new station gets a task no other station has, so a room never repeats a challenge.
         let used = Set(session.taskStations.map { $0.task })
-        let task = TaskKind.allCases.first { !used.contains($0) } ?? TaskKind.allCases[count % TaskKind.allCases.count]
+        let task = TaskKind.availableTasks.first { !used.contains($0) } ?? TaskKind.availableTasks[count % TaskKind.availableTasks.count]
         return MapStation(
             id: "u-\(UUID().uuidString.prefix(6).lowercased())",
             name: "Station \(count + 1)",
@@ -98,10 +98,10 @@ struct SetupReviewView: View {
                 Spacer(minLength: 8)
                 if station.kind == .task {
                     Picker("Task", selection: Binding(
-                        get: { station.task },
+                        get: { station.task == .tilt ? .hold : station.task },
                         set: { var edited = station; edited.task = $0; session.editStation(edited) }
                     )) {
-                        ForEach(TaskKind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                        ForEach(TaskKind.availableTasks, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                     }
                     .labelsHidden()
                 }

@@ -37,4 +37,19 @@ test('hammer and gesture are valid task types for a station', () => {
   ];
   const result = validateRoomSetup(grid, stations);
   assert.deepEqual(result.stations.map((s) => s.task), ['hold', 'hammer', 'gesture']);
+  assert.throws(() => validateRoomSetup(grid, stations.map((s) =>
+    s.id === 'a' ? { ...s, task: 'tilt' } : s)), { code: 'INVALID_STATIONS' });
+});
+
+
+test('fallback and obsolete Tilt suggestions never assign the removed ball task', () => {
+  for (const suggestions of [[], [
+    { candidateId: 'sweep:0', kind: 'task', task: 'tilt' },
+    { candidateId: 'sweep:1', kind: 'task', task: 'tilt' },
+  ]]) {
+    const tasks = taskTypes(selectStations(notes, suggestions, emergency));
+    assert.equal(tasks.length, 3);
+    assert.ok(!tasks.includes('tilt'));
+    assert.equal(new Set(tasks).size, 3);
+  }
 });

@@ -155,10 +155,10 @@ struct DialModel: MotionTaskModel {
 /// Raise the phone upright and keep it still. A jolt or wobble drains the progress; lowering
 /// the phone flat resets it.
 struct SteadyModel: MotionTaskModel {
-    static let holdSeconds = 4.0
+    static let holdSeconds = 5.0
     /// Hand tremor is well under both limits, a wave or a bump is well over.
-    static let maxRotation = 0.5
-    static let maxAcceleration = 0.08
+    static let maxRotation = 0.45
+    static let maxAcceleration = 0.07
 
     private(set) var upright = false
     private(set) var steady = false

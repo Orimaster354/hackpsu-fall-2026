@@ -1,4 +1,5 @@
 import ARKit
+import RealityKit
 import SwiftUI
 
 /// The full-screen view a crew member does a task in, over the live camera when it is available.
@@ -23,7 +24,7 @@ struct MotionTaskSheet: View {
 
     static let timeLimit: TimeInterval = 15
 
-    private enum Outcome { case running, awaitingTile, success, timedOut }
+    private enum Outcome { case running, awaitingTile, success, timedOut, cancelled }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -41,8 +42,11 @@ struct MotionTaskSheet: View {
         .background { backdrop.ignoresSafeArea() }
         .preferredColorScheme(.dark)
         // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
-        .task { if arView == nil { await camera.start() } }
+        .task { if session.canAttemptTasks, arView == nil { await camera.start() } }
         .task(id: attempt) { await runClock() }
+        .onChange(of: session.canAttemptTasks) { _, allowed in
+            if !allowed { cancelAttempt() }
+        }
         .onChange(of: playsInAR) { _, inAR in telemetry.requiresAim = inAR }
         .onDisappear {
             sensor.stop()
@@ -56,6 +60,9 @@ struct MotionTaskSheet: View {
     }
 
     // MARK: Pieces
+
+    /// Old rooms can still decode Tilt, but play the supported hold-steady task.
+    private var task: TaskKind { station.task == .tilt ? .hold : station.task }
 
     /// True on the station's tile with the lights on, the same rule `completeTask` applies.
     private var canFinish: Bool { session.canDoTask(at: station) }
@@ -76,10 +83,9 @@ struct MotionTaskSheet: View {
 
     /// One line on what the prop shows for this task.
     private var arHint: String {
-        switch station.task {
+        switch task {
         case .shake: "Shake the phone. The block in front of you jolts with every hit."
-        case .tilt: "Tilt the phone. The ball rolls on the tray below you."
-        case .hold: "Hold the phone steady. The orb swells while you keep still."
+        case .tilt, .hold: "Hold the phone steady. The orb swells while you keep still."
         case .dial: "Turn the phone. The knob in front of you turns with it."
         case .gesture: "Tilt the pattern. The ball on the tray follows your phone."
         case .hammer: "Swing the phone down. The hammer drives the nail into the wood."
@@ -91,7 +97,7 @@ struct MotionTaskSheet: View {
     @ViewBuilder private var backdrop: some View {
         if let arView {
             ZStack {
-                TaskARBackdrop(arView: arView, task: station.task, telemetry: telemetry)
+                TaskARBackdrop(arView: arView, task: task, telemetry: telemetry)
                 LinearGradient(
                     colors: [.black.opacity(0.55), .clear, .black.opacity(0.55)],
                     startPoint: .top,
@@ -168,10 +174,9 @@ struct MotionTaskSheet: View {
             // The 2D controls are the task in manual mode. In AR they stay alive (they run the rules from the
             // motion sensor) but are hidden, so the player sees one thing to play: the prop in the room.
             ZStack {
-                switch station.task {
+                switch task {
                 case .shake: ShakeTaskView(context: context)
-                case .tilt: BalanceTaskView(context: context)
-                case .hold: SteadyTaskView(context: context)
+                case .tilt, .hold: SteadyTaskView(context: context)
                 case .dial: DialTaskView(context: context)
                 case .gesture: PatternTaskView(context: context)
                 case .hammer: HammerTaskView(context: context)
@@ -187,7 +192,7 @@ struct MotionTaskSheet: View {
         .frame(minHeight: playsInAR ? 180 : 0)
         .overlay {
             switch outcome {
-            case .running: EmptyView()
+            case .running, .cancelled: EmptyView()
             case .awaitingTile:
                 Label("Step back onto the task tile to finish", systemImage: "location.fill")
                     .font(.system(.title3, design: .rounded, weight: .bold))
@@ -260,17 +265,24 @@ struct MotionTaskSheet: View {
     // MARK: Flow
 
     private var instruction: String {
-        switch station.task {
+        switch task {
         case .shake: "Shake the phone hard \(ShakeModel.needed) times."
-        case .tilt: "Hold the phone flat and tilt it to keep the ball in the ring for \(Int(BalanceModel.holdSeconds)) seconds. The ball keeps drifting away."
-        case .hold: "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds."
+        case .tilt, .hold: "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds."
         case .dial: "Hold the phone upright and turn it like a dial to line the needle up with each marker."
         case .gesture: "Hold the phone flat and tilt it in the pattern shown: lower the edge each arrow points to, then level the phone before the next move."
         case .hammer: "Swing the phone down like a hammer to drive the nail in. \(HammerModel.needed) hard hits."
         }
     }
 
+    private func cancelAttempt() {
+        outcome = .cancelled
+        sensor.stop()
+        camera.stop()
+        dismiss()
+    }
+
     private func runClock() async {
+        guard session.canAttemptTasks else { cancelAttempt(); return }
         progress = 0
         telemetry.reset()
         telemetry.requiresAim = playsInAR
@@ -285,7 +297,7 @@ struct MotionTaskSheet: View {
     }
 
     private func succeed() {
-        guard outcome == .running else { return }
+        guard outcome == .running, session.canAttemptTasks else { return }
         sensor.stop()
         telemetry.progress = 1
         progress = 1
@@ -293,6 +305,8 @@ struct MotionTaskSheet: View {
     }
 
     private func finish() {
+        guard session.canAttemptTasks, canFinish,
+              outcome == .running || outcome == .awaitingTile else { return }
         outcome = .success
         telemetry.state = .success
         telemetry.progress = 1

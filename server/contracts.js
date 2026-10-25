@@ -1,6 +1,6 @@
 const { requireAction } = require('./errors');
 
-const TASK_TYPES = new Set(['shake', 'tilt', 'dial', 'hold', 'gesture', 'hammer']);
+const TASK_TYPES = new Set(['shake', 'dial', 'hold', 'gesture', 'hammer']);
 const sameTile = (a, b) => Boolean(a && b && a.x === b.x && a.y === b.y);
 const tileKey = (tile) => `${tile.x},${tile.y}`;
 
