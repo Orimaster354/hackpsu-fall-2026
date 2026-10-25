@@ -48,7 +48,7 @@ Send tiles twice consecutively, including manual mode. Server checks playable ti
 
 `npm.cmd test` runs unit and local WebSocket integration tests, including four simultaneous players, connection/reconnect, setup edits/locking, role privacy, kill/report/vote and sabotage/fix/task synchronization. The latter scenarios use an injected server clock to avoid waiting for cooldowns; clients cannot set time.
 
-[CLIENT_INTEGRATION.md](CLIENT_INTEGRATION.md) links example lobby, setup and state JSON for Owner D. Swift Codable compilation and physical iPhone connectivity remain pending because `MyApp/Net` and `MyApp/Models` are not ready. Backend tests do not satisfy phone acceptance.
+[CLIENT_INTEGRATION.md](CLIENT_INTEGRATION.md) links example lobby, setup and state JSON for Owner D. Main now supplies `MyApp/Net` and `MyApp/Models`; nullable lobby grid and setup-confirmation alignment remain pending on the client. Swift Codable compilation and physical iPhone connectivity are not verified here. Backend tests do not satisfy phone acceptance.
 
 Open `http://localhost:8080/dashboard` for connection status, room membership, readiness and phases. Its four-player controls use real WebSockets; closing the page disconnects its bots. The monitor excludes hidden roles, full player IDs and raw sockets. Rooms remain until server restart.
 

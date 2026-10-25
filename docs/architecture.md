@@ -103,7 +103,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 
 `state` and `meeting` event fields sit directly beside `t`; GameState also has a nested nullable `meeting`. A new room has `grid=null`, empty stations and `setupConfirmed=false` until the server produces setup. Only internal scan processing (or an explicit developer fixture) supplies grid geometry; the obsolete client `setRoom` event is not accepted. Station edits broadcast both `setup` and `lobby`; confirmation broadcasts both with `setupConfirmed=true`. The deletion shorthand `{t:"editStation",id,delete:true}` is also accepted.
 
-On join/reconnect the server sends `joined`, `setup` if available, and the current lobby; during play it also restores only that player's private role and public state. Disconnection retains membership, sets `connected=false`, and clears ready. Reconnect requires readying again. Public snapshots never contain roles. Backend JSON fixtures and the client checklist are in `server/CLIENT_INTEGRATION.md`; Swift decoding/device acceptance remains pending Owner D's implementation.
+On join/reconnect the server sends `joined`, `setup` if available, and the current lobby; during play it also restores only that player's private role and public state. Disconnection retains membership, sets `connected=false`, and clears ready. Reconnect requires readying again. Public snapshots never contain roles. Backend JSON fixtures and the client checklist are in `server/CLIENT_INTEGRATION.md`; Swift decoding/device acceptance remains pending alignment and verification of Owner D's existing implementation.
 
 ## Rules enforced by the server
 - Kill: impostor alive, victim alive and crew, same tile, cooldown 25 s from last kill (and from game start).
