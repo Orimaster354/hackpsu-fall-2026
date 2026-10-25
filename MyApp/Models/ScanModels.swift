@@ -4,9 +4,12 @@ import simd
 // Upload bodies and results for the sticky-note scan (docs/architecture.md, "Sticky-note scan").
 // The app records poses and frames; the server does all room geometry. Units are meters in the ARKit world
 // frame (y up), the same frame the ARWorldMap uses.
+//
+// The upload types are `nonisolated` and `Sendable` so ScanClient can JSON-encode a multi-megabyte sweep off the
+// main actor (the app defaults every type to the main actor).
 
 /// A camera pose: `ARFrame.camera.transform` split into position and rotation quaternion.
-struct CameraPose: Codable, Hashable {
+nonisolated struct CameraPose: Codable, Hashable, Sendable {
     var x: Double
     var y: Double
     var z: Double
@@ -29,7 +32,7 @@ struct CameraPose: Codable, Hashable {
 }
 
 /// One perimeter-walk sample. `t` is seconds since the walk started.
-struct PoseSample: Codable, Hashable {
+nonisolated struct PoseSample: Codable, Hashable, Sendable {
     var t: Double
     var x: Double
     var y: Double
@@ -48,7 +51,7 @@ struct PoseSample: Codable, Hashable {
 
 /// Describes the JPEG pixels exactly as sent, in ARKit's native landscape orientation. If the image is resized,
 /// scale all six values by the same factor.
-struct CameraIntrinsics: Codable, Hashable {
+nonisolated struct CameraIntrinsics: Codable, Hashable, Sendable {
     var fx: Double
     var fy: Double
     var cx: Double
@@ -72,14 +75,14 @@ struct CameraIntrinsics: Codable, Hashable {
     }
 }
 
-struct PerimeterUpload: Codable, Hashable {
+nonisolated struct PerimeterUpload: Codable, Hashable, Sendable {
     static let minSamples = 100
     static let maxSamples = 3000
     var poses: [PoseSample]
 }
 
 /// One sweep frame. `jpeg` is base64 of the JPEG bytes. `t` is seconds since the sweep started.
-struct SweepFrame: Codable, Hashable {
+nonisolated struct SweepFrame: Codable, Hashable, Sendable {
     static let maxJPEGBytes = 600 * 1024
     var index: Int
     var t: Double
@@ -97,7 +100,7 @@ struct SweepFrame: Codable, Hashable {
     var jpegByteCount: Int { jpeg.utf8.count / 4 * 3 }
 }
 
-struct SweepUpload: Codable, Hashable {
+nonisolated struct SweepUpload: Codable, Hashable, Sendable {
     static let minFrames = 8
     static let maxFrames = 60
     /// The tile the host was told to stand on. A hint; the server uses the poses.
