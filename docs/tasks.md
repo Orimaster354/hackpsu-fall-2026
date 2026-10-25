@@ -23,11 +23,11 @@ Latest main's UI and D networking/models are preserved alongside the backend. Ba
 - [x] B: dead-player screen telling the ghost to leave the phone and may wander.
 
 ## Phase 2: Tasks and sabotage
-- [ ] B: Tasks in `MyApp/Tasks/`: shake/tilt balance, hold-steady, rotate dial, each calls `taskDone`. AC: each succeeds in under 15 s on a device and fails when idle.
+- [ ] B: Tasks in `MyApp/Tasks/`: shake/tilt balance, hold-steady, rotate dial, each calls `taskDone`. AC: each succeeds in under 15 s on a device and fails when idle. Implemented (`MotionTaskSheet` replaces the placeholder; the 15 s clock fails an idle phone). Rules pass scripted idle and success checks and the app builds for the simulator; the on-device check remains open.
 - [x] C: task counting for living crew only; `taskDone` validation. Tests cover location, role, duplicates, dead-crew progress, and task victory.
 - [x] C: lights-out state, task blocking, fix-station validation, and sabotage cooldown. Verified by server tests; B's UI and device acceptance remain pending.
 - [ ] B: lights-out + fix-station UI. AC: in the app, tasks are blocked while lights are out and resume after a valid crew fix.
-- [ ] B (cut first): gesture-pattern task.
+- [x] B (cut first): gesture-pattern task (`PatternModel`: tilt left/right/away/toward in a shown sequence, leveling between). Same rules check and build as above; device check open.
 
 ## Phase 3: Scan capture and server grid
 - [ ] A: two-pass capture in one ARKit session (overview, then edge walk): record 720p mp4 plus `poses.json` (about 10 Hz) and intrinsics; guided UI with a pass timer. AC: both uploads succeed over the hotspot in under 30 s total.

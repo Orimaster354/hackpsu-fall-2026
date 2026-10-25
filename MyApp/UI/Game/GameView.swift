@@ -33,7 +33,7 @@ struct GameView: View {
             if session.isAlive { actions }
         }
         .sheet(item: $taskStation) { station in
-            TaskPlaceholderView(station: station) { session.completeTask(at: station) }
+            MotionTaskSheet(station: station) { session.completeTask(at: station) }
         }
         .sheet(isPresented: $showPosition) { PositionSheet() }
         .sensoryFeedback(.warning, trigger: session.isAlive) { old, new in old && !new }
