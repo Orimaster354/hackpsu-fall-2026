@@ -3,7 +3,7 @@
 Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contracts/Net/Integration. Cut order when behind: gesture task, sabotage, Gemini placement (fall back to host-placed stations on edge tiles).
 
 ## Next acceptance priorities
-1. **D — unblock the phone client:** implement the Codable models and `GameClient`; verify lobby receive and reconnect against the running server. These client paths are not present in the current checkout.
+1. **D — align and verify the phone client:** models and `GameClient` are now present from main. Make `LobbySnapshot.grid` nullable, retain `setupConfirmed` in lobby/setup models, and expose setup confirmation in the test UI. Verify lobby receive and reconnect against the running server. See `server/CLIENT_INTEGRATION.md`.
 2. **B + D — play a complete manual-tile round on simulators/phones:** verify lobby/readiness, private role reveal, tile actions, task/kill/meeting/vote/end screens, and the ghost instructions. Server-side tests and bot round already pass; client integration is the remaining acceptance.
 3. **B — finish and test task/sabotage UI on device:** confirm each motion task succeeds/fails as specified and lights-out blocks tasks until a crew member uses the fix station. Server rules are implemented and tested.
 4. **A + C + D — establish scan-to-grid with a shared fixture before real-room AR:** capture/upload both passes, validate polygon/grid and emergency tile, then test host review and manual fallback. Gemini station placement and AR icons follow this foundation.
@@ -36,7 +36,7 @@ Owners: A = AR (Mac 1), B = UI/Tasks (Mac 2), C = Server (Windows), D = Contract
 - [ ] C: emergency tile at the centroid.
 - [ ] D: shared `poses.json` fixture and sample `setup` JSON committed to `docs/fixtures/` early so A, B and C can work in parallel.
 - [x] C: align backend lobby/game wire details with the approved architecture: retain ready/connected, add setupConfirmed, use nullable initial grid and flat state/meeting events. Handoff and sample lobby/setup/state JSON are in `server/CLIENT_INTEGRATION.md` and `server/fixtures/`. Four real WebSocket clients verify kill/report/vote and sabotage/fix/task synchronization; 37 automated tests pass.
-- [ ] D: verify Codable models and GameClient against the backend handoff fixtures, then test on phones with B. User confirmed these client paths are not ready; backend tests do not satisfy this acceptance.
+- [ ] D: verify Codable models and GameClient against the backend handoff fixtures, then test on phones with B. Main now includes these paths, but nullable grid/setup confirmation alignment and device verification remain pending; backend tests do not satisfy this acceptance.
 - [ ] B: host setup review screen (2D map, stations on edge tiles, move/delete/add, confirm).
 
 ## Phase 4: Relocalization and live tiles (A)

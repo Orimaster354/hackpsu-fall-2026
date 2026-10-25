@@ -1,6 +1,8 @@
 # Owner D backend handoff
 
-Status: backend wire tests pass; `MyApp/Net` and `MyApp/Models` are not ready yet, so Swift Codable compilation/round-trips and physical iPhone connectivity are **not verified**. Do not mark D's Phase 0 checkboxes complete from backend tests.
+Status after rebasing onto main: `MyApp/Net` and `MyApp/Models` are now present and were preserved unchanged. All 37 backend tests pass. Swift Codable compilation/round-trips and physical iPhone connectivity are **not verified here**. Do not mark D's Phase 0 checkboxes complete from backend tests.
+
+Current client gaps for D: `LobbySnapshot.grid` in `MyApp/Models/Messages.swift` is required (`Grid`) but new rooms send null; make it optional and update consumers. Both lobby and setup need the approved `setupConfirmed` flag, which the current models omit. Remove obsolete `setRoom` use. The debug screen can send start but has no confirm-setup control; add a host confirmation action before starting. `NetDebugView` is no longer the root screen in main, so D must explicitly run it locally for this integration check. The separate Connect/Disconnect rows from main are preserved. No iOS files were changed by the backend rebase.
 
 ## Transport and identity
 
