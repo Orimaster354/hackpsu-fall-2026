@@ -101,6 +101,7 @@ The emergency station's required `task` uses `hold` as an ignored placeholder; c
 JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebSocket:
 - `POST /scan/:room/perimeter` and `POST /scan/:room/sweep`: JSON uploads, host only. Formats in "Sticky-note scan".
 - `POST /map/:room` and `GET /map/:room`: ARWorldMap binary.
+- Map uploads accept 1 byte to 64 MiB; the host client must use the same cap. The older `RoomScanFlow.maxMapBytes` value of 20 MiB rejects larger maps locally before any request; Owner A must update it and its error text.
 - There is no separate process route: each upload starts its own processing, and results arrive as `processing` then `setup` over WebSocket.
 
 ### Client to server
@@ -154,6 +155,10 @@ YOLOE is the detector. Only `sticky note` observations are task candidates; door
 Preference: notes with distinctive objects in the same frame (furniture, plants, appliances, shelves, TVs, whiteboards, doors, windows) rank above notes on bare wall, and variety across the chosen notes is preferred. Context is image evidence, never a measured distance. Geometry, not Gemini, decides tiles, spacing, emergency placement and edge rules. Gemini failure retains the notes and falls back to score ranking. Wall attachment, access and accidental duplicates need host review.
 
 ## Developer video diagnostic
+
+`/dashboard/videos` now opens a live laptop-only app-scan monitor. It polls `GET /api/dashboard/scans` once per second, following newly received perimeter/sweep uploads and validated per-frame YOLOE progress. It shows upload bytes, stage, raw observations versus geometrically merged notes, Gemini choices, warnings/errors, grid and final station tiles. Existing manual video comparison is in a collapsed section. This observes app batch uploads; it does not require or add a live camera streaming contract.
+
+Diagnostic endpoints are loopback-only and read-only: `GET /api/dashboard/scans` returns bounded scan metadata; `GET /api/dashboard/scans/:runId/frames/:index` returns a retained JPEG preview. At most six scan records and six <=600 KiB original JPEG previews per record remain in server memory until eviction/restart. Notes shown are capped at 64, selected stations first. No images are written to disk for the monitor; the sweep worker still deletes its temporary files. Metadata excludes raw poses, player identities, credentials and hidden roles. Preview images themselves are available only on the laptop. Server restart is required to load this feature and resets its history.
 
 This is a developer tool for tuning YOLOE and Gemini on room clips. The game scan is the perimeter walk plus sweep described in "Sticky-note scan"; the overview and edge-walk video pipeline below is not part of it.
 
