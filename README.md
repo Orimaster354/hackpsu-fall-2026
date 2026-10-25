@@ -18,7 +18,7 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 ## Stack
 - iOS: Swift, SwiftUI, ARKit (video, pose log, ARWorldMap, AR icons), Core Motion.
 - Server: Node.js, `ws`, in-memory state (no database).
-- AI: local YOLOE-26 Small detection; Gemini task reasoning called only from the server. See `server/README.md` for detector setup and the two-video dashboard.
+- AI: local YOLOE-26 Large detection (configurable checkpoint); Gemini task reasoning called only from the server. See `server/README.md` for detector setup and the live app-scan dashboard.
 
 ## Setup
 1. iOS: open `Untitled Project 2.xcodeproj` on a Mac, set your signing team, run on a physical iPhone.
