@@ -1,5 +1,7 @@
 # Owner D backend handoff
 
+Latest branch-specific scan audit: [ARKIT_HANDOFF.md](ARKIT_HANDOFF.md). `feature/arkit` at `f7f49a7` implements capture/upload and fixes several older client gaps described below. The local backend implements both scan endpoints; source inspection and 76 backend tests pass, but device acceptance remains pending. The older main-checkout findings below are historical, not proof those gaps remain on the ARKit branch.
+
 Status after the Owner C integration fixes: `MyApp/Net`, `MyApp/Models` and B's `MyApp/UI` are present and preserved unchanged. All 45 backend tests pass. Swift Codable compilation/round-trips and physical iPhone connectivity are **not verified here**. Do not mark D's Phase 0 checkboxes complete from backend tests.
 
 Current client gaps for D: `LobbySnapshot.grid` in `MyApp/Models/Messages.swift` is required (`Grid`) but new rooms send null; make it optional and update consumers. Lobby also needs the approved `hostId` field; both lobby and setup need `setupConfirmed`, which the current models omit. Remove obsolete `setRoom` use. The debug screen can send start but has no confirm-setup control; add a host confirmation action before starting. `NetDebugView` is no longer the root screen in main, so D must explicitly run it locally for this integration check. The separate Connect/Disconnect rows from main are preserved. No iOS files were changed by the backend integration fixes.
