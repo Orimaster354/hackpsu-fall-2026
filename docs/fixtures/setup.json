@@ -1,10 +1,10 @@
 {
  "t": "setup",
+ "setupConfirmed": false,
  "grid": {
   "cols": 5,
   "rows": 5,
   "tileSize": 1,
-  "blocked": [],
   "originX": -0.5,
   "originZ": -0.5,
   "playable": [
