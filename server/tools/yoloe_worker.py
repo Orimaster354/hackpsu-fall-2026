@@ -296,6 +296,7 @@ def analyze_sweep(model, specs):
                         context.append(item)
         detections = [{**note, "context": nearby_context(note["box"], context, width, height)} for note in suppress_overlapping_notes(notes)]
         frames.append({"index": spec["index"], "width": width, "height": height, "detections": detections})
+        emit({"type": "sweep_frame", "frame": frames[-1]})
         emit({"type": "progress", "message": f"Sweep frame {spec['index']}: {len(detections)} note observations"})
     return frames
 

@@ -51,3 +51,13 @@ test('map upload is blocked after game start and GET remains available', async (
   assert.equal((await fetch(url, { method: 'POST', headers, body: 'replacement' })).status, 409);
   assert.equal(await (await fetch(url)).text(), 'map');
 });
+
+test('default map limit accepts and round-trips a map above the former 20 MiB cap', async (t) => {
+  const app=createAppServer();const address=await app.listen(0,'127.0.0.1');t.after(()=>app.close());
+  const {room,player}=app.rooms.create('Host',{readyState:1,send(){}});
+  const url=`http://127.0.0.1:${address.port}/map/${room.code}`;
+  const binary=Buffer.alloc(21*1024*1024,73);
+  const uploaded=await fetch(url,{method:'POST',headers:{'content-type':'application/octet-stream','X-Player-Id':player.id},body:binary});
+  assert.equal(uploaded.status,204);assert.equal(room.hasMap,true);
+  const downloaded=Buffer.from(await (await fetch(url)).arrayBuffer());assert.deepEqual(downloaded,binary);
+});

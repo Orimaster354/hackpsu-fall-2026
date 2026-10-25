@@ -30,7 +30,7 @@ The server listens on `0.0.0.0:8080`. `PORT` overrides the port; `WS_URL` overri
 
 - `GET /health`: `{"ok":true}`.
 - `/ws`: JSON text WebSocket messages.
-- `POST /map/:room`: host-only opaque ARWorldMap binary, `Content-Type: application/octet-stream`, `X-Player-Id: <host joined ID>`. Lobby only, 1 byte to 20 MiB, HTTP 204 on success; broadcasts `hasMap=true`.
+- `POST /map/:room`: host-only opaque ARWorldMap binary, `Content-Type: application/octet-stream`, `X-Player-Id: <host joined ID>`. Lobby only, 1 byte to 64 MiB, HTTP 204 on success; broadcasts `hasMap=true`.
 - `GET /map/:room`: room-scoped binary download, 404 before upload. Maps live in memory.
 - `GET /dashboard` and `GET /api/dashboard`: laptop-only connection/ready/phase monitor. `/dashboard/live` is the legacy sampled-frame detector tester.
 
@@ -93,6 +93,10 @@ node tools/testSweep.js C:\path\perimeter.json C:\path\sweep.json
 The router resolves socket membership and calls `room.game.handle(player, message)`. `Game.state()` returns public state, `Game.publish()` broadcasts it, and `room.sendTo(player, event)` delivers privately. The scan processor calls internal `room.game.applySetup({grid,stations})`; validation clones the supplied data and rejects replacement after confirmation. This is not a client event. Test-only clock/random/timer injection is available through `createAppServer(options)`.
 
 ## Wall Post-it detection and task reasoning
+
+**Live app results:** open `http://localhost:8080/dashboard/videos` on the laptop. Perimeter/sweep uploads from the iOS app appear automatically; no manual file selection is needed. The page follows the newest scan and updates every second as frames are analyzed. It shows room/stage, upload and frame progress, note counts/boxes, merged note selections, Gemini reasoning, warnings/errors, grid and final station tiles. Select an older scan to inspect it or use **Follow newest** to resume. Uploaded-camera frames appear after the app submits its batch, not during capture before upload.
+
+The read-only `/api/dashboard/scans` metadata and `/api/dashboard/scans/:runId/frames/:index` JPEG routes are laptop-only. Six recent scans and up to six <=600 KiB representative JPEGs per scan stay in bounded memory until eviction/restart; no monitor images are persisted to disk. The metadata contains no raw poses, API keys, player identities or secret roles. Restart clears history. Manual file tests remain available under **Manual video detector comparison**.
 
 YOLOE-26 Small is the default detector. The detector targets yellow sticky notes using the text prompt `yellow sticky note`; canonical output stays `sticky note`. This prompt is not independent color verification. Only note observations are task candidates; doors, windows, whiteboards, switches, outlets, clocks, posters, extinguishers and vents are wall context. The worker samples 1 FPS at 960 px, accepts scores >=0.35 and returns up to eight note observations per pass. Small-note minimum area is 0.0001 of the frame, replacing the furniture filter. This is experimental open-vocabulary detection, not a trained/validated Post-it detector.
 
