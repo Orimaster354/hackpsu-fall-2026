@@ -14,10 +14,17 @@ enum Theme {
         static let ink = Color(hex: 0x0B1020)
         /// Fill behind white button text.
         static let accent = Color(hex: 0x2A5FEA)
+        /// Text, icons and the app tint on the dark background: 7.2.
         static let crew = Color(hex: 0x5BB0FF)
         static let impostor = Color(hex: 0xFF5A6B)
         static let success = Color(hex: 0x3DDC97)
         static let danger = Color(hex: 0xFF7A85)
+        /// Placeholder text in fields: 4.6:1 or better on the field fill.
+        static let placeholder = Color.white.opacity(0.5)
+        /// Fill behind white icons on the emergency tile: 5.49.
+        static let emergency = Color(hex: 0xC8283D)
+        /// The fix station's wrench. Dark ink on it is 9.9.
+        static let warning = Color(hex: 0xEAB308)
     }
 
     /// Outer radius = inner radius + padding. A 12pt padded card holds 12pt rows, so the card is 24.

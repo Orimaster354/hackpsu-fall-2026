@@ -62,9 +62,9 @@ struct RoleRevealView: View {
         let shape = RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
         return ZStack {
             if isRevealed {
-                revealedFace.transition(BlurRise())
+                revealedFace.transition(Motion.swap)
             } else {
-                hiddenFace.transition(BlurRise())
+                hiddenFace.transition(Motion.swap)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 300)
@@ -89,8 +89,8 @@ struct RoleRevealView: View {
 
     private var hiddenFace: some View {
         VStack(spacing: 16) {
-            Image(systemName: "eye.slash.fill")
-                .font(.system(size: 56))
+            Image(systemName: "eye.slash")
+                .font(.system(size: 56, weight: .bold))
                 .foregroundStyle(Theme.Palette.textSecondary)
             Text("Press and hold to reveal")
                 .font(.system(.title, design: .rounded, weight: .heavy))
@@ -101,7 +101,7 @@ struct RoleRevealView: View {
     private var revealedFace: some View {
         VStack(spacing: 16) {
             Image(systemName: role.symbol)
-                .font(.system(size: 64))
+                .font(.system(size: 64, weight: .bold))
                 .foregroundStyle(role.tint)
             Text(role.title.uppercased())
                 .font(.system(.largeTitle, design: .rounded, weight: .heavy))
@@ -151,9 +151,9 @@ extension PlayerRole {
 }
 
 #Preview("Crewmate, revealed") {
-    RootView(session: .mock(.crew), roleStartsRevealed: true)
+    RootView(session: .mock(.crew), preview: ScreenPreview(roleRevealed: true))
 }
 
 #Preview("Impostor, revealed") {
-    RootView(session: .mock(.impostor), roleStartsRevealed: true)
+    RootView(session: .mock(.impostor), preview: ScreenPreview(roleRevealed: true))
 }

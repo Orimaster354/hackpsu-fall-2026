@@ -2,7 +2,7 @@ import SwiftUI
 
 // Motion for infrequent moments only (screen changes, the role reveal, copying a code).
 // Enter: opacity, 4pt blur, 12pt rise over 300ms. Exit: the same, 12pt up, over 150ms.
-// Whole-screen swaps are a plain opacity cross-fade, because each screen staggers its own content in.
+// Enters take 300ms and exits 150ms, set per transition, never one duration for both.
 // Under Reduce Motion everything becomes a plain opacity cross-fade.
 
 /// Opacity, 4pt blur and 12pt of travel. Enters from below, leaves upward.
@@ -26,6 +26,25 @@ private struct BlurRiseEffect: ViewModifier {
             .opacity(phase.isIdentity ? 1 : 0)
             .blur(radius: phase.isIdentity || reduceMotion ? 0 : 4)
             .offset(y: reduceMotion ? 0 : offset)
+    }
+}
+
+enum Motion {
+    /// A whole-screen swap. The new screen fades in over 300ms and staggers its own content in,
+    /// and the old one leaves like any exit: opacity, 4pt blur, 12pt up, 150ms.
+    static var screen: some Transition {
+        AsymmetricTransition(
+            insertion: OpacityTransition().animation(.easeOut(duration: 0.3)),
+            removal: BlurRise().animation(.easeOut(duration: 0.15))
+        )
+    }
+
+    /// A swap inside a card: 300ms in, 150ms out, each with its own animation.
+    static var swap: some Transition {
+        AsymmetricTransition(
+            insertion: BlurRise().animation(.easeOut(duration: 0.3)),
+            removal: BlurRise().animation(.easeOut(duration: 0.15))
+        )
     }
 }
 

@@ -15,7 +15,10 @@ enum PlayerPalette {
 struct PlayerAvatar: View {
     let name: String?
     let colorIndex: Int
-    @ScaledMetric private var size: CGFloat = 40
+    @ScaledMetric private var scaledSize: CGFloat = 40
+
+    /// Follows Dynamic Type, but stops growing so a row never turns into one big circle.
+    private var size: CGFloat { min(scaledSize, 56) }
 
     var body: some View {
         ZStack {
