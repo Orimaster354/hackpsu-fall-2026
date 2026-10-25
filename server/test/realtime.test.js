@@ -5,6 +5,64 @@ const { runRound } = require('../tools/fakeClient');
 const { connectClient } = require('../tools/client');
 const manualSetup = require('../fixtures/manual-setup.json');
 
+test('protocol ping receives pong before joining and does not require a JSON ping event', { timeout: 5000 }, async (t) => {
+  const app = createAppServer();
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const client = await connectClient(`ws://127.0.0.1:${address.port}/ws`);
+  const pong = new Promise((resolve) => client.socket.once('pong', resolve));
+  client.socket.ping('keepalive');
+  assert.equal((await pong).toString(), 'keepalive');
+  client.send({ t: 'create', name: 'Ping test' });
+  const joined = await client.waitFor((event) => event.t === 'joined');
+  assert.equal((await client.waitFor((event) => event.t === 'lobby')).hostId, joined.playerId);
+});
+
+test('replacement closes the old socket with 4000 and its late close cannot detach the new host', { timeout: 5000 }, async (t) => {
+  const app = createAppServer({ manualSetup });
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const url = `ws://127.0.0.1:${address.port}/ws`;
+  const old = await connectClient(url);
+  old.send({ t: 'create', name: 'Host' });
+  const identity = await old.waitFor((event) => event.t === 'joined');
+  const room = app.rooms.rooms.get(identity.room);
+  const oldServerSocket = room.players.get(identity.playerId).socket;
+  const closed = new Promise((resolve) => old.socket.once('close', (code, reason) => resolve({ code, reason: reason.toString() })));
+  const replacement = await connectClient(url);
+  replacement.send({ t: 'join', room: identity.room, name: 'Host', playerId: identity.playerId });
+  assert.equal((await replacement.waitFor((event) => event.t === 'joined')).playerId, identity.playerId);
+  assert.deepEqual(await closed, { code: 4000, reason: 'Reconnected elsewhere' });
+  replacement.send({ t: 'ready', ready: true });
+  const lobby = await replacement.waitFor((event) => event.t === 'lobby' && event.players[0].ready);
+  assert.equal(lobby.hostId, identity.playerId);
+  assert.equal(lobby.players.length, 1);
+  assert.equal(lobby.players[0].connected, true);
+  room.detach(identity.playerId, oldServerSocket); // A stale close must never own the replacement.
+  assert.equal(room.lobbyMessage().players[0].ready, true);
+  assert.equal(room.lobbyMessage().players[0].connected, true);
+  replacement.send({ t: 'confirmSetup' });
+  assert.equal((await replacement.waitFor((event) => event.t === 'setup' && event.setupConfirmed)).setupConfirmed, true);
+});
+
+test('a rejected reconnect does not evict the current connection', async (t) => {
+  const app = createAppServer();
+  const address = await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const url = `ws://127.0.0.1:${address.port}/ws`;
+  const host = await connectClient(url);
+  host.send({ t: 'create', name: 'Host' });
+  const identity = await host.waitFor((event) => event.t === 'joined');
+  const invalid = await connectClient(url);
+  invalid.send({ t: 'join', room: identity.room, name: 'Wrong name', playerId: identity.playerId });
+  assert.equal((await invalid.waitFor((event) => event.t === 'error')).code, 'PLAYER_NOT_FOUND');
+  host.send({ t: 'ready', ready: true });
+  const lobby = await host.waitFor((event) => event.t === 'lobby' && event.players[0].ready);
+  assert.equal(lobby.hostId, identity.playerId);
+  assert.equal(lobby.players[0].connected, true);
+  assert.equal(lobby.players.length, 1);
+});
+
 test('four WebSocket bots play a complete synchronized round', async (t) => {
   const app = createAppServer({ manualSetup });
   const address = await app.listen(0, '127.0.0.1');
