@@ -7,6 +7,7 @@ struct NetDebugView: View {
     @AppStorage(ServerConfig.defaultsKey) private var address = ""
     @State private var name = "Player"
     @State private var roomCode = ""
+    @State private var connectAction = "Not tapped"
     @State private var log: [String] = []
 
     var body: some View {
@@ -20,20 +21,25 @@ struct NetDebugView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Status").font(.caption).foregroundStyle(.secondary)
                         Text(statusText).fixedSize(horizontal: false, vertical: true)
+                        Text(connectAction).font(.caption).foregroundStyle(.secondary)
                     }
-                    HStack {
-                        Button("Connect") { connect() }
-                        Spacer()
-                        Button("Disconnect", role: .destructive) { client.disconnect(); note("disconnected") }
+                    Button("Connect") {
+                        connect()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Disconnect", role: .destructive) {
+                        client.disconnect()
+                        note("disconnected")
                     }
                 }
 
                 Section("Room") {
                     TextField("Name", text: $name)
-                    HStack {
-                        Button("Create room") { client.send(.create(name: name)) }
-                        Spacer()
-                        Button("Ready") { client.send(.ready(true)) }
+                    Button("Create room") {
+                        client.send(.create(name: name))
+                    }
+                    Button("Ready") {
+                        client.send(.ready(true))
                     }
                     TextField("Room code", text: $roomCode)
                         .textInputAutocapitalization(.characters)
@@ -83,10 +89,18 @@ struct NetDebugView: View {
     }
 
     private func connect() {
+        connectAction = "Connect tapped"
+        guard let endpoint = ServerConfig.parse(address) else {
+            connectAction = "Invalid address — enter 104.39.241.215:8080"
+            note(connectAction)
+            return
+        }
+
         client.onMessage = { message in note(describe(message)) }
         client.onReconnected = { note("reconnected") }
-        client.connect()
-        note("connecting to \(ServerConfig.current()?.host ?? "?")")
+        client.connect(to: endpoint)
+        connectAction = "Connecting to ws://\(endpoint.host):\(endpoint.port)/ws"
+        note(connectAction)
     }
 
     private func note(_ line: String) {
