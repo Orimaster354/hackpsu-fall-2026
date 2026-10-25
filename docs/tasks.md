@@ -77,8 +77,7 @@ The source comments in `MyApp/UI/Session/SessionModels.swift` describe the older
 - For A: tile reporting is centralized. Conform one class to `PositionProvider` (`MyApp/UI/Position/PositionProvider.swift`: publish `tile` and `status`) and pass it to `RootView` as `PositionCoordinator(ar:)`. The coordinator sends `tile { tile, source }` at 2 Hz, so the AR module does not need to send it. `MapGrid.tile(atX:z:)` and `worldCenter(of:)` do the tile math, and `StationIcon(style: .world)` renders the AR icons through `ImageRenderer`.
 
 ## AR notes (owner A, 2026-10-25)
-- Built, **not yet device-verified** (boxes above stay unchecked): perimeter walk, vantage picker, sweep, ARWorldMap upload in `MyApp/AR/` (`RoomScanFlow`, `RoomScanView`). Mac checks and a stand-in scan server are in `Tests/ARScanChecks/` (see its README for the iPhone test).
+- Built, **not yet device-verified** (boxes above stay unchecked): perimeter walk, vantage picker, sweep, ARWorldMap upload in `MyApp/AR/` (`RoomScanFlow`, `RoomScanView`). Mac checks are in `Tests/ARScanChecks/` (see its README for the iPhone test).
 - D: `docs/ar-capture.md` says `ScanClient.uploadMap`; the code has `GameClient.uploadMap`, which the app uses. `ScanClient` encodes the sweep JSON on the main actor, so the screen may freeze for a moment during upload; consider a nonisolated encode.
 - B: the lobby `SetupCard` text still describes the old two-video scan ("Walk the room twice", "Spotting objects in the videos").
 - All: `Info.plist` now also has `NSLocalNetworkUsageDescription` and `NSAppTransportSecurity > NSAllowsLocalNetworking` for the LAN server. If a phone cannot reach the server, `NSAllowsArbitraryLoads` (as `docs/integration.md` says) is the fallback.
-- C: until `POST /scan/:room/perimeter|sweep` exist, `node Tests/ARScanChecks/standin/server.js` serves them on top of the real server.

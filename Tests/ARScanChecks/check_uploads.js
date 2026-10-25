@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const [repo, out] = process.argv.slice(2);
-const { validatePerimeter, validateSweep, MAX_PERIMETER_BYTES, MAX_SWEEP_BYTES } = require('./standin/contract');
+const { validatePerimeter, validateSweep, MAX_PERIMETER_BYTES, MAX_SWEEP_BYTES } = require('./contract');
 const g = require(path.join(repo, 'docs/fixtures/postit/postit-geometry.js'));
 
 let checks = 0;

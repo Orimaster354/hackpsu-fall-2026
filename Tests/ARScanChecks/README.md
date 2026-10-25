@@ -1,4 +1,4 @@
-# Room scan: checks, stand-in server, and the iPhone test
+# Room scan: checks and the iPhone test
 
 Everything here supports the host room scan in `MyApp/AR/` (spec: `docs/ar-capture.md`). The Mac checks prove logic
 and bookkeeping. **They do not prove ARKit's behaviour in a real room. Only the iPhone test does.**
@@ -14,29 +14,17 @@ Compiles the ARKit-free scan code with the real Models/Net sources, then runs, i
   fake backend including every failure and retry path.
 - **Node, uploads (26):** the bodies Swift produced obey the upload contract; poses and intrinsics that went through
   `simd` matrices still place the 6 reference notes on the right tiles (`docs/fixtures/postit/postit-geometry.js`).
-- **Node, stand-in (24):** see below.
 
-Needs Xcode, Node 22+, Python 3 with Pillow, and `cd server && npm install` once.
+Needs Xcode and Node 22+.
 
-## 2. Stand-in scan server
-The real server has no `/scan/:room/perimeter` or `/sweep` yet (owner C). The stand-in wraps the **real** server
-(lobby, host check, WebSocket, `/map`) and adds only those two routes, with the documented validation:
-```
-node Tests/ARScanChecks/standin/server.js        # prints the address to type into the app
-```
-Simplifications, all in the stand-in and none in the app: convex rooms only; a yellow colour threshold instead of YOLOE;
-no Gemini (first 3 notes become tasks, the 4th a fix station). Each sweep is saved under
-`Tests/ARScanChecks/standin/captures/<ROOM>-<time>/` with `frame-*.jpg`, `report.json` and `upload-meta.json`.
-Use the real server once C ships the routes; the app does not change.
-
-## 3. iPhone test (physical, needs your results)
+## 2. iPhone test (physical, needs your results)
 Build: open `Untitled Project 2.xcodeproj`, pick your iPhone (iOS 27), set your signing team locally (do not commit it), Run.
 The first launch asks for **Camera** and **Local Network**: allow both.
 
 Prepare the room: 6 to 8 bright yellow sticky notes (7.5 cm or bigger) on the walls at chest height, 2 m apart, none more
 than about 4 m from the middle. Write down which wall tile each is on, and the room's tape-measured size.
 
-1. Start the stand-in on the Mac. Phone and Mac on the same Wi-Fi (or the Mac on the phone's hotspot).
+1. Run the server (`cd server && npm start`) once it has the `/scan` routes. Phone and Mac on the same Wi-Fi (or the Mac on the phone's hotspot).
 2. In the app: Settings, server address `<mac ip>:8080`. Create a room. In the lobby tap **Scan room**.
 3. **Perimeter.** Wait for Tracking: Normal, tap Start, walk the room edge 0.3 to 0.5 m from the walls, finish where you
    started. Done unlocks only within 0.75 m of the start. *Record:* poses, metres walked vs the tape perimeter, the gap at the end.
@@ -44,11 +32,11 @@ than about 4 m from the middle. Write down which wall tile each is on, and the r
 5. **Vantage.** Check the dot follows you across tile boundaries; walk to the dashed tile; Start sweep unlocks only there.
 6. **Sweep.** Turn one full circle in about 30 s (10 to 12 degrees per second). *Record:* the "Projection check" px value
    (should be about 1 px or less), frames, JPEG size and KiB range, intrinsics, intrinsics drift.
-7. **Result.** *Record:* the stand-in's console line (notes found and their tiles) against your list of real note tiles.
-   A note on the wrong wall means an orientation or intrinsics problem: send me `captures/<ROOM>-*/report.json`.
+7. **Result.** *Record:* the notes found and their tiles (the app's report and the server log) against your list of real note tiles.
+   A note on the wrong wall means an orientation or intrinsics problem.
 8. **Map.** The report ends with "World map: N MB uploaded".
 9. **Failure behaviour** (each should recover cleanly): cover the camera for 3 s mid-walk (recording pauses, banner);
-   leave the app mid-scan (scan restarts); spin fast (sweep refused with advice); stop the stand-in during an upload
+   leave the app mid-scan (scan restarts); spin fast (sweep refused with advice); stop the server during an upload
    (error with Retry, nothing lost).
 
 Not covered yet: a second phone loading the map (Phase 4), detection quality of the real YOLOE model, and accuracy numbers.

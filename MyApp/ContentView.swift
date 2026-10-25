@@ -6,6 +6,14 @@ struct ContentView: View {
     @State private var live = LiveConnection()
     /// The host's room scan (MyApp/AR), opened from the lobby's "Scan room" button.
     @State private var showsRoomScan = false
+    /// Relocalizes every phone into the host's scanned room and reports its tile (MyApp/AR). Manual tiles remain the fallback.
+    @State private var position: PositionCoordinator
+
+    init() {
+        let live = LiveConnection()
+        _live = State(initialValue: live)
+        _position = State(initialValue: PositionCoordinator(ar: ARPositionProvider(client: live.client)))
+    }
 
     var body: some View {
         // Real server by default. For UI work without a server, run a Debug build with the launch
@@ -15,8 +23,7 @@ struct ContentView: View {
         } else if Self.usesMock {
             RootView()
         } else {
-            // The AR module adds `position:` here when relocalization and live tiles are ready.
-            RootView(session: live.session, startRoomScan: { showsRoomScan = true })
+            RootView(session: live.session, position: position, startRoomScan: { showsRoomScan = true })
                 .fullScreenCover(isPresented: $showsRoomScan) {
                     RoomScanView(client: live.client, session: live.session)
                 }

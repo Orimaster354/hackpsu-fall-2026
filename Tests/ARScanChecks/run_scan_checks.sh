@@ -15,4 +15,3 @@ swiftc -swift-version 5 -Xfrontend -default-isolation -Xfrontend MainActor -o "$
   Tests/ARScanChecks/main.swift
 "$OUT/ScanChecks" "$ROOT" "$OUT"
 node Tests/ARScanChecks/check_uploads.js "$ROOT" "$OUT"
-node Tests/ARScanChecks/standin/selftest.js
