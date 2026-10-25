@@ -13,6 +13,9 @@ struct MotionSample {
     var rotationRate: Double
     /// Seconds since the previous sample.
     var dt: Double
+    /// The hand's acceleration along gravity, in g. Positive while the phone is being pushed or swung DOWN, negative
+    /// while it is lifted. A hammer stroke is a strong positive spike. Defaults to 0 for samples that do not set it.
+    var accelerationAlongGravity: Double = 0
 }
 
 /// Publishes `MotionSample`s at 60 Hz while started. The task rules live in `TaskModels.swift`
@@ -52,7 +55,10 @@ final class MotionSensor {
             gravityZ: motion.gravity.z,
             userAcceleration: (a.x * a.x + a.y * a.y + a.z * a.z).squareRoot(),
             rotationRate: (r.x * r.x + r.y * r.y + r.z * r.z).squareRoot(),
-            dt: dt
+            dt: dt,
+            // CoreMotion's gravity vector points toward the ground in the phone's frame, so this dot product is how hard
+            // the hand is accelerating toward the ground.
+            accelerationAlongGravity: a.x * motion.gravity.x + a.y * motion.gravity.y + a.z * motion.gravity.z
         ))
     }
 }

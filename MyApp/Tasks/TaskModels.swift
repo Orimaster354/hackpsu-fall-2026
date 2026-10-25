@@ -41,11 +41,17 @@ struct ShakeModel: MotionTaskModel {
 /// pushing it out. Unit disk: the wall is at radius 1.
 struct BalanceModel: MotionTaskModel {
     static let holdSeconds = 4.0
-    static let zoneRadius = 0.4
+    /// A little easier than before: a slightly wider ring (was 0.4), a gentler drift (was 1.2), more damping (was
+    /// 1.5, so less overshoot) and a slower loss of progress (was 0.5). Cancelling the drift now takes about 0.37 g
+    /// of tilt per unit of offset instead of 0.5, roughly a third less precision. The drift still pushes the ball
+    /// out on its own, so an idle phone never finishes.
+    static let zoneRadius = 0.45
     /// Ball acceleration per g of tilt, and the strength of the drift (both per second squared).
     private static let control = 6.0
-    private static let drift = 1.2
-    private static let damping = 1.5
+    private static let drift = 1.0
+    private static let damping = 1.8
+    /// Progress drained per second while the ball is outside the ring, as a fraction of the fill rate.
+    private static let lossRate = 0.4
 
     private(set) var x = 0.0
     private(set) var y = 0.0
@@ -85,7 +91,7 @@ struct BalanceModel: MotionTaskModel {
                 vy -= outward * ny
             }
         }
-        held = inZone ? min(Self.holdSeconds, held + dt) : max(0, held - dt * 0.5)
+        held = inZone ? min(Self.holdSeconds, held + dt) : max(0, held - dt * Self.lossRate)
     }
 }
 
@@ -150,12 +156,9 @@ struct DialModel: MotionTaskModel {
 /// the phone flat resets it.
 struct SteadyModel: MotionTaskModel {
     static let holdSeconds = 4.0
-    /// Hand tremor is well under both limits, a wave or a bump is well over. Relaxed a little from 0.5 rad/s and
-    /// 0.08 g, which were hard to hold for a full four seconds, but still far below a wave or a bump.
-    static let maxRotation = 0.7
-    static let maxAcceleration = 0.11
-    /// A wobble drains progress this many times faster than steady holding fills it (was 2).
-    static let drainFactor = 1.5
+    /// Hand tremor is well under both limits, a wave or a bump is well over.
+    static let maxRotation = 0.5
+    static let maxAcceleration = 0.08
 
     private(set) var upright = false
     private(set) var steady = false
@@ -171,8 +174,33 @@ struct SteadyModel: MotionTaskModel {
         } else if steady {
             held = min(Self.holdSeconds, held + s.dt)
         } else {
-            held = max(0, held - s.dt * Self.drainFactor)
+            held = max(0, held - s.dt * 2)
         }
+    }
+}
+
+// MARK: Hammer
+
+/// Swing the phone down like a hammer to drive a nail. Each hard downward stroke is one hit; lifting the phone back
+/// up does not count, so the player has to wind up and strike. A phone lying idle never hits.
+struct HammerModel: MotionTaskModel {
+    static let needed = 6
+    /// Hand acceleration toward the ground, in g, that counts as a strike. A gentle wave stays well below it,
+    /// a real downward swing of the wrist is well above.
+    static let strikeThreshold = 1.0
+    /// Shortest gap between two strikes, so one swing is not counted twice and the back-swing has to happen.
+    static let gap = 0.4
+
+    private(set) var hits = 0
+    private var sinceHit = HammerModel.gap
+
+    var progress: Double { min(1, Double(hits) / Double(Self.needed)) }
+
+    mutating func step(_ s: MotionSample) {
+        sinceHit += s.dt
+        guard s.accelerationAlongGravity > Self.strikeThreshold, sinceHit >= Self.gap else { return }
+        hits += 1
+        sinceHit = 0
     }
 }
 

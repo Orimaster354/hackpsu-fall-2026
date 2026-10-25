@@ -71,7 +71,7 @@ struct LobbyHomeView: View {
             Image(systemName: "moon.stars.fill")
                 .font(.system(size: 44, weight: .bold))
                 .foregroundStyle(Theme.Palette.crew)
-            Text("IRL Among Us")
+            Text("Blindspot")
                 .font(.system(.largeTitle, design: .rounded, weight: .heavy))
             Text("Find the impostor in a real room.")
                 .font(.subheadline)

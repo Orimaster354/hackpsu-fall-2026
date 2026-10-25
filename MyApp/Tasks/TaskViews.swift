@@ -23,6 +23,8 @@ private struct DriveModel<Model: MotionTaskModel>: ViewModifier {
     func body(content: Content) -> some View {
         content.onReceive(context.sensor.samples) { sample in
             guard !finished else { return }
+            // Played on the AR prop: nothing counts while the camera is pointed away from it.
+            guard context.telemetry.canAdvance else { return }
             model.step(sample)
             onSample(sample)
             context.report.progress(model.progress)
@@ -205,11 +207,9 @@ struct SteadyTaskView: View {
         }
         .drive($model, context) { sample in
             context.telemetry.good = model.upright && model.steady
-            // The dot shows the shake against the same limits the rule uses: it rests in the center while the
-            // phone is inside them, nudges a little as it nears them, and jumps once it is past them.
-            let amount = min(1.5, max(sample.rotationRate / SteadyModel.maxRotation, sample.userAcceleration / SteadyModel.maxAcceleration))
-            let reach = amount * amount * 40
-            wobble = CGSize(width: .random(in: -1 ... 1) * reach, height: .random(in: -1 ... 1) * reach)
+            // The dot shows the shake: it jumps with rotation and acceleration, and rests when still.
+            let amount = min(1, (sample.rotationRate / 2 + sample.userAcceleration) / 1.0)
+            wobble = CGSize(width: .random(in: -1 ... 1) * amount * 80, height: .random(in: -1 ... 1) * amount * 80)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Hold the phone upright and steady")
@@ -219,6 +219,62 @@ struct SteadyTaskView: View {
     private var status: String {
         if !model.upright { return "Raise the phone upright" }
         return model.steady ? "Steady… keep it still" : "Too shaky, hold still"
+    }
+}
+
+// MARK: Hammer
+
+struct HammerTaskView: View {
+    let context: TaskContext
+    @State private var model = HammerModel()
+    @State private var swing = false
+
+    /// Nail height, from fully out (1) to flush (0), as the hits land.
+    private var nailOut: CGFloat { CGFloat(1 - model.progress) }
+
+    var body: some View {
+        Arena {
+            ZStack {
+                // The wood the nail goes into.
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.brown.opacity(0.75))
+                    .frame(width: 150, height: 56)
+                    .offset(y: 70)
+                // The nail: a shaft that sinks and a head that rides on top of it.
+                VStack(spacing: 0) {
+                    Capsule().fill(Theme.Palette.textPrimary).frame(width: 34, height: 8)
+                    Capsule().fill(Theme.Palette.textSecondary).frame(width: 8, height: 14 + 70 * nailOut)
+                }
+                // Length is 22 (flush) to 92 (fully out); the tip stays at y = 56, inside the wood, so the head sinks.
+                .offset(y: 45 - 35 * nailOut)
+                .animation(.easeOut(duration: 0.12), value: model.hits)
+                // The hammer comes down on every hit.
+                Image(systemName: "hammer.fill")
+                    .font(.system(size: 54))
+                    .foregroundStyle(Theme.Palette.crew)
+                    .rotationEffect(.degrees(swing ? 20 : -50), anchor: .bottomTrailing)
+                    .offset(x: 52, y: -62)
+                    .animation(.easeOut(duration: 0.1), value: swing)
+                Text("\(model.hits) / \(HammerModel.needed)")
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+                    .monospacedDigit()
+                    .offset(y: -100)
+            }
+        }
+        .drive($model, context) { _ in
+            context.telemetry.strikeCount = model.hits
+        }
+        .onChange(of: model.hits) { _, _ in
+            swing = true
+            Task {
+                try? await Task.sleep(for: .milliseconds(140))
+                swing = false
+            }
+        }
+        .sensoryFeedback(.impact(weight: .heavy), trigger: model.hits)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Swing the phone down like a hammer")
+        .accessibilityValue("\(model.hits) of \(HammerModel.needed) hits")
     }
 }
 

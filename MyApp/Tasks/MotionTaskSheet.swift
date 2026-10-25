@@ -40,8 +40,10 @@ struct MotionTaskSheet: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background { backdrop.ignoresSafeArea() }
         .preferredColorScheme(.dark)
-        .task { if arSession == nil { await camera.start() } }
+        // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
+        .task { if arView == nil { await camera.start() } }
         .task(id: attempt) { await runClock() }
+        .onChange(of: playsInAR) { _, inAR in telemetry.requiresAim = inAR }
         .onDisappear {
             sensor.stop()
             camera.stop()
@@ -58,19 +60,38 @@ struct MotionTaskSheet: View {
     /// True on the station's tile with the lights on, the same rule `completeTask` applies.
     private var canFinish: Bool { session.canDoTask(at: station) }
 
-    /// The AR module's session, when the phone is tracking in the room. Then the camera belongs to
-    /// ARKit and the task is drawn on it; otherwise the plain camera feed is used.
-    private var arSession: ARSession? {
-        guard position.mode == .ar, position.status == .tracking else { return nil }
-        return (position.ar as? ARPositionProvider)?.arSession
+    /// The AR session's shared view, whenever ARKit owns the camera (even while it is still finding its place, or
+    /// when the player chose manual tiles). The task is drawn on that view, never on a second camera.
+    private var arView: ARView? {
+        guard let provider = position.ar as? ARPositionProvider, provider.isSessionRunning else { return nil }
+        return provider.arView
+    }
+
+    /// True when the task is played on the 3D prop in the room: AR is the position source and tracking is good.
+    /// Then the prop is the task, the flat 2D controls are hidden, and progress needs the camera on the prop.
+    /// In manual mode, or without tracking, the 2D controls are the task, as before.
+    private var playsInAR: Bool {
+        position.mode == .ar && position.status == .tracking && arView != nil
+    }
+
+    /// One line on what the prop shows for this task.
+    private var arHint: String {
+        switch station.task {
+        case .shake: "Shake the phone. The block in front of you jolts with every hit."
+        case .tilt: "Tilt the phone. The ball rolls on the tray below you."
+        case .hold: "Hold the phone steady. The orb swells while you keep still."
+        case .dial: "Turn the phone. The knob in front of you turns with it."
+        case .gesture: "Tilt the pattern. The ball on the tray follows your phone."
+        case .hammer: "Swing the phone down. The hammer drives the nail into the wood."
+        }
     }
 
     /// The room through the camera under a dark scrim so the text stays readable, or the plain
     /// backdrop when the camera is not available.
     @ViewBuilder private var backdrop: some View {
-        if let arSession {
+        if let arView {
             ZStack {
-                TaskARBackdrop(session: arSession, task: station.task, telemetry: telemetry)
+                TaskARBackdrop(arView: arView, task: station.task, telemetry: telemetry)
                 LinearGradient(
                     colors: [.black.opacity(0.55), .clear, .black.opacity(0.55)],
                     startPoint: .top,
@@ -144,16 +165,26 @@ struct MotionTaskSheet: View {
             telemetry: telemetry
         )
         ZStack {
-            switch station.task {
-            case .shake: ShakeTaskView(context: context)
-            case .tilt: BalanceTaskView(context: context)
-            case .hold: SteadyTaskView(context: context)
-            case .dial: DialTaskView(context: context)
-            case .gesture: PatternTaskView(context: context)
+            // The 2D controls are the task in manual mode. In AR they stay alive (they run the rules from the
+            // motion sensor) but are hidden, so the player sees one thing to play: the prop in the room.
+            ZStack {
+                switch station.task {
+                case .shake: ShakeTaskView(context: context)
+                case .tilt: BalanceTaskView(context: context)
+                case .hold: SteadyTaskView(context: context)
+                case .dial: DialTaskView(context: context)
+                case .gesture: PatternTaskView(context: context)
+                case .hammer: HammerTaskView(context: context)
+                }
             }
+            .id(attempt)
+            .frame(width: playsInAR ? 1 : nil, height: playsInAR ? 1 : nil)
+            .clipped()
+            .opacity(playsInAR ? 0 : (outcome == .running ? 1 : 0.35))
+            .allowsHitTesting(!playsInAR)
+            if playsInAR, outcome == .running { aimGuide }
         }
-        .id(attempt)
-        .opacity(outcome == .running ? 1 : 0.35)
+        .frame(minHeight: playsInAR ? 180 : 0)
         .overlay {
             switch outcome {
             case .running: EmptyView()
@@ -172,6 +203,30 @@ struct MotionTaskSheet: View {
                     .font(.system(.title3, design: .rounded, weight: .bold))
                     .foregroundStyle(Theme.Palette.danger)
             }
+        }
+    }
+
+    /// Shown over the AR scene while the task is played on the prop: what to do, or how to get the prop back
+    /// in view. The telemetry fields are plain, so a timeline polls them.
+    private var aimGuide: some View {
+        TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+            VStack(spacing: 10) {
+                if telemetry.aimed {
+                    Label(arHint, systemImage: "viewfinder")
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                } else {
+                    Label("Point the camera at the prop to keep going", systemImage: "scope")
+                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .foregroundStyle(Theme.Palette.warning)
+                    Button("Bring the prop back") { telemetry.recenterRequested = true }
+                        .buttonStyle(.game(.secondary))
+                        .fixedSize()
+                }
+            }
+            .multilineTextAlignment(.center)
+            .padding(14)
+            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -211,12 +266,14 @@ struct MotionTaskSheet: View {
         case .hold: "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds."
         case .dial: "Hold the phone upright and turn it like a dial to line the needle up with each marker."
         case .gesture: "Hold the phone flat and tilt it in the pattern shown: lower the edge each arrow points to, then level the phone before the next move."
+        case .hammer: "Swing the phone down like a hammer to drive the nail in. \(HammerModel.needed) hard hits."
         }
     }
 
     private func runClock() async {
         progress = 0
         telemetry.reset()
+        telemetry.requiresAim = playsInAR
         outcome = .running
         deadline = .now.addingTimeInterval(Self.timeLimit)
         sensor.start()

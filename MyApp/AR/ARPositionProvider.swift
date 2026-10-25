@@ -1,4 +1,5 @@
 import ARKit
+import RealityKit
 import Foundation
 import Observation
 
@@ -35,10 +36,35 @@ final class ARPositionProvider: PositionProvider {
     /// The one ARSession, for views that draw on it (the task screen's 3D prop). Never run or pause it from there.
     var arSession: ARSession { tracking.session }
 
-    /// The tile under the phone. nil while relocalizing, interrupted, degraded or outside the playable grid.
+    /// The session's one shared RealityKit view. Draw on this; never create another ARView for the session, because
+    /// RealityKit pauses the session when such a view goes away.
+    var arView: ARView { tracking.arView }
+
+    /// ARKit owns the camera right now. While true, nothing else (an AVCaptureSession) may use it.
+    var isSessionRunning: Bool { tracking.isRunning && !tracking.isInterrupted }
+
+    /// How long the last good tile keeps being reported after tracking drops, while ARKit finds its place again.
+    static let holdLastTileSeconds: TimeInterval = 10
+
+    /// The last tile AR was sure of, and when. Not observed: it only feeds the continuity rule below.
+    @ObservationIgnored private var lastGood: (tile: MapTile, at: Date)?
+
+    /// The tile under the phone. While tracking it is the live tile. For a short time after tracking drops
+    /// (a task screen, a call, a glance away) while ARKit is relocalizing or interrupted, it stays the last good
+    /// tile: a player who just finished a task is still standing on that station's tile, so the map and the server
+    /// do not lose them. nil when outside the grid, after the hold runs out, and for real failures.
     var tile: MapTile? {
-        guard detail == .tracking else { return nil }
-        return currentTile
+        let now = Date()
+        let current = detail
+        if current == .tracking, let live = currentTile {
+            lastGood = (live, now)
+            return live
+        }
+        if (current == .relocalizing || current == .interrupted), let lastGood,
+           now.timeIntervalSince(lastGood.at) < Self.holdLastTileSeconds {
+            return lastGood.tile
+        }
+        return nil
     }
 
     var status: PositionStatus { detail.status }
@@ -81,6 +107,7 @@ final class ARPositionProvider: PositionProvider {
         grid = nil
         lastGrid = nil
         map = .idle
+        lastGood = nil
     }
 
     private func cancelInFlight() {

@@ -25,16 +25,18 @@ Doors, windows, whiteboards, light switches, outlets, clocks, posters, vents and
 - Each `candidateId` at most once.
 
 # Task types
-Use only `hold`, `tilt`, `dial` or `shake`. Match the type to the surroundings when evidence supports it, and use different types across the three tasks when you can:
+Use only `hold`, `tilt`, `dial`, `shake`, `gesture` or `hammer`. Match the type to the surroundings when evidence supports it. **Never give two task suggestions the same type**: every task station in a room must be a different challenge (the server enforces this and will change a repeat, so choose well):
 - `hold`: keep the phone still. Fits desks, tables, shelves, monitors, calm spots.
-- `tilt`: lean the phone to steer. Fits sofas, chairs, beds, open floor.
+- `tilt`: lean the phone to keep a ball in a ring. Fits sofas, chairs, beds, open floor.
 - `dial`: rotate the phone like a knob. Fits doors, windows, switches, clocks.
 - `shake`: shake the phone. Fits sinks, refrigerators, plants, mugs, bottles, busy spots.
+- `gesture`: tilt the phone in a shown pattern. Fits open floor, rugs, low tables.
+- `hammer`: swing the phone down like a hammer to drive a nail. Fits shelves, wooden furniture, workbenches, frames.
 With no supporting context, choose the type no other pick uses yet. Never require touching equipment, moving a note, opening a door or climbing.
 
 # Output
 Return only JSON, no other text:
-`{ "summary": "<one or two sentences, under 400 characters>", "suggestions": [ { "candidateId": "...", "kind": "task" | "fix", "task": "hold" | "tilt" | "dial" | "shake", "reason": "<under 250 characters>" } ] }`
+`{ "summary": "<one or two sentences, under 400 characters>", "suggestions": [ { "candidateId": "...", "kind": "task" | "fix", "task": "hold" | "tilt" | "dial" | "shake" | "gesture" | "hammer", "reason": "<under 250 characters>" } ] }`
 - `reason` cites only what the input shows: score, labels, gap. Example: "Score 0.82, a bookshelf (gap 0.04) and a plant (gap 0.09) in the same image; the shelf makes it easy to find." Say when evidence is thin: "Score 0.61, no context, chosen to fill the last slot."
 - Never include coordinates, tiles, distances in meters, positions, the emergency location, or claims that spacing, wall attachment, access or room geometry were checked. The server and the host verify those.
 - If every candidate is weak, return an empty `suggestions` array and say why in `summary`.

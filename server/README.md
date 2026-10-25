@@ -1,4 +1,4 @@
-# ROOMSHIFT multiplayer server
+# Blindspot multiplayer server
 
 Requires Node.js 22 or newer. On Windows PowerShell use `npm.cmd` if execution policy blocks `npm.ps1`.
 
@@ -120,7 +120,7 @@ Start the backend with `npm.cmd start` and open `http://localhost:8080/dashboard
 
 The ignored `.env` supplies `GEMINI_API_KEY`. Optional `GEMINI_VIDEO_MODEL` overrides `GEMINI_MODEL` for this test only. The dashboard shows the selected model and whether a key is present, never the key. The model must support video and structured JSON; provider access/quota errors are displayed without automatic retry. Google API documentation: [video understanding](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding), [file uploads](https://ai.google.dev/api/files).
 
-Developer-only `GET /api/dashboard/video-test` exposes non-secret configuration; `POST` accepts required multipart `overview` and optional `edge` video files with `X-Roomshift-Video-Test: 1`, and streams NDJSON progress/result/error records. Loopback only, one run at a time, five-minute processing deadline; Cancel aborts active work. Input is bounded in memory and not saved locally. Provider files are deleted after each attempt when possible; cleanup failures are reported on successful results. Provider retention applies if cleanup fails. No gameplay rooms or shared iOS endpoints are changed. Actual two-video acceptance remains pending a successful run with the user's clips.
+Developer-only `GET /api/dashboard/video-test` exposes non-secret configuration; `POST` accepts required multipart `overview` and optional `edge` video files with `X-Blindspot-Video-Test: 1`, and streams NDJSON progress/result/error records. Loopback only, one run at a time, five-minute processing deadline; Cancel aborts active work. Input is bounded in memory and not saved locally. Provider files are deleted after each attempt when possible; cleanup failures are reported on successful results. Provider retention applies if cleanup fails. No gameplay rooms or shared iOS endpoints are changed. Actual two-video acceptance remains pending a successful run with the user's clips.
 
 ## Local YOLOE-26 Small setup
 

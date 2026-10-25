@@ -33,7 +33,7 @@ function createSweepDetector({pythonPath=process.env.YOLOE_PYTHON || path.join(_
   return {async detect(frames,intrinsics,{signal,onFrame=()=>{}}={}){
     requireAction(ready && fs.existsSync(pythonPath),'SCAN_FAILED','YOLOE is not ready; install and warm up the local detector.');
     signal?.throwIfAborted();
-    const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'roomshift-sweep-'));
+    const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'blindspot-sweep-'));
     try{
       const specs=[];
       for(const [i,frame] of frames.entries()){

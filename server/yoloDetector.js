@@ -77,7 +77,7 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
       requireAction(ready && fs.existsSync(pythonPath), 'YOLOE_NOT_READY', 'Install requirements-yoloe.txt and run tools/yoloe_worker.py --warmup with the isolated Python runtime.');
       signal?.throwIfAborted();
       const started = Date.now();
-      const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'roomshift-yoloe-'));
+      const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'blindspot-yoloe-'));
       try {
         const specs = [];
         for (const video of videos) {
