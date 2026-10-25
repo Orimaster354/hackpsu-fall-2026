@@ -1,0 +1,4 @@
+# Optional local video detector; isolated from the Node multiplayer server.
+# YOLOE-26 requires Ultralytics >=8.4. Torch CPU wheels are installed separately.
+ultralytics==8.4.188
+clip @ git+https://github.com/ultralytics/CLIP.git@7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40
