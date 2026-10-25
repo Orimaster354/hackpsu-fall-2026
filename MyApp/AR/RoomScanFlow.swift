@@ -22,6 +22,38 @@ protocol ScanBackend: AnyObject {
     func uploadWorldMap(_ data: Data) async throws
     /// Largest pixel disagreement between the documented projection math and ARKit's own, or nil if unavailable.
     func projectionSelfCheck() -> Double?
+    /// How many `setup` events the server has sent so far. It rises on every event, even when the new grid equals
+    /// the old one. Backends that cannot count return 0, and the flow then falls back to comparing grids.
+    var setupRevision: Int { get }
+    /// How complete ARKit's map of the room was when `captureWorldMap` last saved it, or nil if unknown.
+    var lastWorldMapQuality: WorldMapQuality? { get }
+}
+
+extension ScanBackend {
+    var setupRevision: Int { 0 }
+    var lastWorldMapQuality: WorldMapQuality? { nil }
+}
+
+/// How well ARKit had mapped the room when the world map was saved. A map saved before it is `mapped` or
+/// `extending` can fail to relocalize on other phones.
+enum WorldMapQuality: Equatable {
+    case mapped, extending, limited, notAvailable
+
+    var isComplete: Bool { self == .mapped || self == .extending }
+
+    var label: String {
+        switch self {
+        case .mapped: "complete"
+        case .extending: "complete, still extending"
+        case .limited: "incomplete (limited)"
+        case .notAvailable: "unavailable"
+        }
+    }
+
+    /// What to tell the host when the map is not complete, nil when it is fine.
+    var warning: String? {
+        isComplete ? nil : "The room was only partly mapped (\(label)). Other phones may fail to find their place. Scan the room again, walking slowly and looking at the walls and floor, or expect to use manual tiles."
+    }
 }
 
 /// Host room scan (docs/ar-capture.md): perimeter walk, vantage pick, sweep, world map. One AR session
@@ -104,6 +136,8 @@ final class RoomScanFlow {
     @ObservationIgnored private var pendingSweep: SweepUpload?
     @ObservationIgnored private var sweepResult: SweepResult?
     @ObservationIgnored private var mapBytes = 0
+    /// How complete the saved map was, from the backend. nil until a map is saved, or when the backend cannot say.
+    private(set) var mapQuality: WorldMapQuality?
 
     init(backend: ScanBackend) {
         self.backend = backend
@@ -199,7 +233,8 @@ final class RoomScanFlow {
         detail = "Uploading \(recorder.count) poses…"
         let poses = recorder.samples
         let before = backend.grid
-        launch { [self] epoch in await runPerimeterUpload(poses, gridBefore: before, epoch: epoch) }
+        let revisionBefore = backend.setupRevision
+        launch { [self] epoch in await runPerimeterUpload(poses, gridBefore: before, revisionBefore: revisionBefore, epoch: epoch) }
     }
 
     /// Throw away the walk and record a new one in the same session.
@@ -210,12 +245,12 @@ final class RoomScanFlow {
         step = .idle
     }
 
-    private func runPerimeterUpload(_ poses: [PoseSample], gridBefore: MapGrid?, epoch: Int) async {
+    private func runPerimeterUpload(_ poses: [PoseSample], gridBefore: MapGrid?, revisionBefore: Int, epoch: Int) async {
         do {
             let result = try await backend.uploadPerimeter(poses)
             guard alive(epoch), step == .uploadingPerimeter else { return }
             detail = "Building the room map…"
-            guard let newGrid = await waitForGrid(result: result, before: gridBefore, epoch: epoch) else {
+            guard let newGrid = await waitForGrid(result: result, before: gridBefore, revisionBefore: revisionBefore, epoch: epoch) else {
                 guard alive(epoch) else { return }
                 step = .perimeter
                 message = "The server accepted the walk but did not send the room map. Tap Done to upload again."
@@ -241,14 +276,27 @@ final class RoomScanFlow {
         }
     }
 
-    private func waitForGrid(result: PerimeterResult, before: MapGrid?, epoch: Int) async -> MapGrid? {
+    /// Waits for the server's `setup` for this upload. A new `setup` event is the acknowledgement, not a changed
+    /// grid: uploading the same walk again legitimately produces an identical grid, and the server still sends
+    /// a fresh event. The event may even arrive before the HTTP answer, which is why the count is taken before
+    /// the upload starts. Backends that cannot count (revision stays 0) fall back to a changed grid.
+    private func waitForGrid(result: PerimeterResult, before: MapGrid?, revisionBefore: Int, epoch: Int) async -> MapGrid? {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: Self.gridWait)
         while clock.now < deadline, alive(epoch) {
-            if let grid = backend.grid, grid != before, grid.cols == result.cols, grid.rows == result.rows { return grid }
+            if let grid = backend.grid, grid.cols == result.cols, grid.rows == result.rows,
+               Self.isFreshSetup(revision: backend.setupRevision, revisionBefore: revisionBefore, grid: grid, before: before) {
+                return grid
+            }
             try? await Task.sleep(for: .milliseconds(100))
         }
         return nil
+    }
+
+    /// A `setup` counts as fresh when the event count went up, or, for a backend without a count, the grid changed.
+    static func isFreshSetup(revision: Int, revisionBefore: Int, grid: MapGrid, before: MapGrid?) -> Bool {
+        if revision > revisionBefore { return true }
+        return revision == 0 && revisionBefore == 0 && grid != before
     }
 
     // MARK: Step 2: vantage
@@ -457,6 +505,7 @@ final class RoomScanFlow {
             try await backend.uploadWorldMap(data)
             guard alive(epoch) else { return }
             mapBytes = data.count
+            mapQuality = backend.lastWorldMapQuality
             report = makeFinalReport()
             step = .done
             mapNote = ""
@@ -514,6 +563,7 @@ final class RoomScanFlow {
         sweepResult = nil
         mapFailed = false
         mapNote = ""
+        mapQuality = nil
         report = []
         resetSweepData()
     }
@@ -585,6 +635,10 @@ final class RoomScanFlow {
             for warning in result.warnings { lines.append(ReportLine(label: "Server warning", value: warning, warn: true)) }
         }
         lines.append(ReportLine(label: "World map", value: String(format: "%.1f MB uploaded", Double(mapBytes) / 1_048_576)))
+        if let quality = mapQuality {
+            lines.append(ReportLine(label: "Map quality", value: quality.label, warn: !quality.isComplete))
+            if let warning = quality.warning { lines.append(ReportLine(label: "Map warning", value: warning, warn: true)) }
+        }
         return lines
     }
 

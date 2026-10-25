@@ -12,6 +12,7 @@ swiftc -swift-version 5 -Xfrontend -default-isolation -Xfrontend MainActor -o "$
   MyApp/Net/GameClient.swift MyApp/Net/ServerConfig.swift MyApp/Net/ScanClient.swift \
   MyApp/UI/Session/SessionModels.swift \
   MyApp/AR/ScanGeometry.swift MyApp/AR/SweepFrameEncoder.swift MyApp/AR/RoomScanFlow.swift \
+  MyApp/AR/PositionDetailResolver.swift MyApp/UI/Position/PositionProvider.swift MyApp/UI/Position/MockARProvider.swift \
   Tests/ARScanChecks/main.swift
 "$OUT/ScanChecks" "$ROOT" "$OUT"
 node Tests/ARScanChecks/check_uploads.js "$ROOT" "$OUT"

@@ -58,3 +58,31 @@ After the sweep upload succeeds, call `session.getCurrentWorldMap`, archive it, 
 - Do not send frames while the host is walking to the vantage tile. Start the sweep timer only after they are on the tile.
 - Poses must come from the same session as the perimeter. If the session restarts, start over.
 - Notes more than about 4 m from the vantage tile get too small to detect. For a bigger room, say so: a second sweep from another tile is a possible extension, not part of this plan.
+
+## Joiner tracking and Retry AR (Phase 4)
+A joining phone downloads the host's ARWorldMap, relocalizes into the host's coordinate frame, and reports its tile. Code: `MyApp/AR/ARPositionProvider.swift`, `ARTrackingSession.swift`, `PositionDetailResolver.swift`; UI: `MyApp/UI/Position/PositionProvider.swift`, `GameView`, `HUDParts`.
+
+**One precise status.** `PositionDetail` says which of these applies, and the screen shows its message:
+`downloadingMap`, `mapMissing`, `downloadFailed`, `decodeFailed`, `relocalizing`, `timedOut`, `interrupted`, `sessionFailed`, `tracking`, `outsideGrid`. `PositionStatus` (searching / tracking / failed) is still the coarse signal for existing screens. `outsideGrid` is AR working with no tile to report; it is not a failure and shows no retry.
+
+**Retry AR is a real restart.** `PositionCoordinator.retryAR()` calls `ARPositionProvider.restart()`, which cancels the current attempt, clears the old error, downloads the host's existing map again (`GET /map/:room`), and starts the session with `initialWorldMap` and `.resetTracking`. That is the host's frame, never a new origin. `useAR()` does the same when AR had given up; if AR is healthy it only switches the source. `ARTrackingSession.reset()` (new origin) is for the host scan and is never called during recovery.
+
+**Stale attempts are ignored.** Every attempt has a number (`AttemptCounter`). A map download or a 20 s relocalization timeout that wakes up after a retry, a cancel or an interruption sees an old number and does nothing, so it cannot push the new attempt into manual mode.
+
+**Interruptions.** An interruption stops the 20 s clock; when it ends, a fresh clock starts. A session failure records `sessionFailed(reason)` and offers Retry AR. When the app returns to the foreground (`RootView`, scene phase active) and AR had given up, the coordinator retries once; a player who chose manual tiles stays on them.
+
+**Manual fallback is unchanged.** Manual tiles and the `tile { tile, source }` message are untouched. In manual mode, if AR has failed, the HUD shows why and a Retry AR button.
+
+**World-map quality.** The host's map is saved after at most 15 s of waiting for ARKit to finish mapping, so it can be saved incomplete. The final scan report now shows "Map quality" and, when the map was `limited` or `notAvailable`, a "Map warning" line recommending a rescan.
+
+**Repeated perimeter.** `RoomScanFlow` waits for a new `setup` event (`GameSession.setupRevision`), not a changed grid, so uploading the same walk again works.
+
+Checks: `./Tests/ARScanChecks/run_scan_checks.sh` (Mac) covers the status rules, stale-attempt guard, coordinator retry, mock recovery and the equal-grid retry. They do not cover ARKit. The device acceptance is below.
+
+### Device acceptance (not yet run)
+1. Host scans and uploads a map (report shows Map quality).
+2. A second phone joins, relocalizes, and reports a tile; stand both phones on the same tile and confirm both report it.
+3. Force a timeout (cover the camera for 20 s after joining). Expect "could not find your place" with Retry AR. Tap it: a fresh attempt starts, and with the camera uncovered it recovers.
+4. Send the app to the background for a minute and return: it recovers, or shows a message with Retry AR.
+5. Manual mode still works, including after a failed AR attempt.
+Record results for each step separately from the Mac checks.

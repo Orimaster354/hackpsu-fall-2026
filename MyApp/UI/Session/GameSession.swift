@@ -24,6 +24,10 @@ final class GameSession {
     private(set) var hasMap = false
     private(set) var setupStep: SetupStep?
     private(set) var setupConfirmed = false
+    /// Counts every `setup` event received. It goes up even when the new grid equals the old one, which is what
+    /// happens when the host repeats a perimeter walk with the same poses. A scan step waits for this to change
+    /// instead of comparing grids.
+    private(set) var setupRevision = 0
 
     // Game
     private(set) var phase: GamePhase = .lobby
@@ -255,6 +259,7 @@ final class GameSession {
             self.stations = stations
             setupStep = nil
             setupConfirmed = false
+            setupRevision += 1
         case let .setupStatus(confirmed):
             setupConfirmed = confirmed
         case let .host(id):

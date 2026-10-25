@@ -136,20 +136,40 @@ struct GameView: View {
                 emphasized: !placed
             )
         } else {
-            switch position.status {
-            case .searching: PromptLine(icon: "viewfinder", text: "Finding your place in the room…", emphasized: true)
-            case .tracking: PromptLine(icon: "checkmark.circle.fill", text: "AR is tracking you", emphasized: false)
-            case let .failed(reason): PromptLine(icon: "exclamationmark.triangle.fill", text: reason, emphasized: true)
-            case .idle: EmptyView()
+            // The precise reason (map missing, download failed, relocalizing, timed out, interrupted, outside the
+            // grid, ...) rather than one generic line.
+            let detail = position.arDetail
+            if detail != .idle {
+                PromptLine(icon: detail.icon, text: detail.message, emphasized: detail != .tracking)
             }
         }
-        if position.offerManual {
+        if position.mode == .ar, position.offerManual {
             HStack(spacing: 12) {
                 Text("Can't find your place in the room.")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
+                Button { position.retryAR() } label: {
+                    Text("Retry AR").padding(.horizontal, 12)
+                }
+                .buttonStyle(.game(.primary))
+                .fixedSize()
                 Button { position.useManual() } label: {
-                    Text("Use manual tiles").padding(.horizontal, 16)
+                    Text("Use manual tiles").padding(.horizontal, 12)
+                }
+                .buttonStyle(.game(.secondary))
+                .fixedSize()
+            }
+            .padding(12)
+            .gameCard(radius: Theme.Radius.control)
+        } else if position.mode == .manual, position.canUseAR, position.arDetail.canRetry {
+            // Manual tiles are working, but AR gave up. Say why and let the player try again.
+            HStack(spacing: 12) {
+                Text(position.arDetail.message)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                Spacer(minLength: 8)
+                Button { position.retryAR() } label: {
+                    Text("Retry AR").padding(.horizontal, 12)
                 }
                 .buttonStyle(.game(.secondary))
                 .fixedSize()
