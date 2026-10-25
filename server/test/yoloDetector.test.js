@@ -103,7 +103,7 @@ test('dashboard can choose local YOLOE without a configured Gemini key', async (
   const body = new FormData(); // Omitting detector now defaults to the primary local YOLOE model.
   for (const pass of ['overview', 'edge']) body.set(pass, new Blob([header, movie], { type: 'video/mp4' }), `${pass}.mp4`);
   const response = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });
-  assert.equal(response.status, 200); assert.match(await response.text(), /yoloe-26s-seg.pt/); assert.equal(calls, 1);
+  assert.equal(response.status, 200); assert.ok((await response.text()).includes(MODEL)); assert.equal(calls, 1);
   assert.equal(planningCalls, 0);
   body.set('reasoning', '1');
   const planned = await fetch(url, { method: 'POST', headers: { 'X-Blindspot-Video-Test': '1' }, body });

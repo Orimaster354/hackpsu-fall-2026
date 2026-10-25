@@ -44,7 +44,7 @@
     $('app-scan-info').textContent=run?`Room ${run.room} · ${run.kind} · ${new Date(run.startedAt).toLocaleTimeString()} · ${(((run.endedAt??Date.now())-run.startedAt)/1000).toFixed(0)}s elapsed`:'Scan a room in the iPhone app. New uploads appear automatically.';
     if(!run)return;
     const bytes=run.receivedBytes/1048576,total=run.totalBytes/1048576;
-    $('app-scan-metrics').textContent=`Upload ${bytes.toFixed(1)}${total?` / ${total.toFixed(1)}`:''} MiB · Frames ${run.frames.length}/${run.totalFrames} · Raw note observations ${run.frames.reduce((sum,f)=>sum+f.notes,0)} · Merged notes ${run.notesFound??'—'} · Task/fix stations ${run.result?.stations??'—'}`;
+    $('app-scan-metrics').textContent=`${run.detectorModel||'Scan processing'} · Upload ${bytes.toFixed(1)}${total?` / ${total.toFixed(1)}`:''} MiB · Frames ${run.frames.length}/${run.totalFrames} · Raw note observations ${run.frames.reduce((sum,f)=>sum+f.notes,0)} · Merged notes ${run.notesFound??'—'} · Task/fix stations ${run.result?.stations??'—'}`;
     $('app-scan-upload').value=run.totalBytes?Math.min(100,run.receivedBytes/run.totalBytes*100):0;
     $('app-scan-error').hidden=!run.error;
     $('app-scan-error').textContent=run.error?`${run.error.code}: ${run.error.message}`:'';
