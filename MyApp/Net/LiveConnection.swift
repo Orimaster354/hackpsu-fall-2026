@@ -34,7 +34,7 @@ final class LiveConnection {
 
     private func send(_ intent: ClientIntent) {
         switch intent {
-        case .create, .join:
+        case .create, .createDemo, .join:
             switch client.status {
             case .connected, .connecting, .reconnecting: break
             case .disconnected, .failed: client.connect()
@@ -50,6 +50,7 @@ final class LiveConnection {
     static func message(for intent: ClientIntent) -> ClientMessage {
         switch intent {
         case let .create(name): return .create(name: name)
+        case let .createDemo(name): return .createDemo(name: name)
         case let .join(room, name): return .join(room: room, name: name)
         case let .ready(ready): return .ready(ready)
         case let .editStation(station): return .editStation(Station(station))
@@ -80,7 +81,7 @@ final class LiveConnection {
         case let .joined(playerId, room):
             return [.joined(playerID: playerId, room: room)]
         case let .lobby(snapshot):
-            var events: [ServerEvent] = []
+            var events: [ServerEvent] = [.demoStatus(snapshot.demo)]
             if let hostId = snapshot.hostId { events.append(.host(id: hostId)) }
             events.append(.lobby(players: snapshot.players.map { PlayerInfo($0) },
                                  grid: snapshot.grid.map { MapGrid($0) },

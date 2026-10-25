@@ -109,7 +109,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 ### Client to server
 | t | fields | notes |
 |---|---|---|
-| `create` | name | returns `room` code (4 letters), host |
+| `create` | name, demo?: Bool (default false) | returns `room` code (4 letters), host; demo=true loads an editable server-owned preset |
 | `join` | room, name, playerId? | returns `playerId`; send the same room/name/playerId on reconnect |
 | `ready` | ready: Bool | lobby only; server updates sender; advisory, not an extra start requirement |
 | `editStation` | station (full object or `{id, delete: true}`) | host only, lobby phase; task/fix edge tiles only; emergency immutable |
@@ -128,7 +128,7 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 | t | fields |
 |---|---|
 | `joined` | playerId, room |
-| `lobby` | hostId: String, players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool |
+| `lobby` | hostId: String, players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool, demo: Bool |
 | `processing` | step: "polygon"\|"gemini"\|"placing" |
 | `setup` | grid, stations, setupConfirmed: Bool (draft until confirmed) |
 | `role` | role (private) |
@@ -195,3 +195,9 @@ The icon positions come straight from `Station.tile` and `Grid`; the app only co
 - Keepalive uses WebSocket protocol ping/pong (not JSON). The server automatically answers pings, even before a client joins. Protocol errors use `{t:"error",code,message}` and normally leave the socket open; see `server/ERROR_CODES.md`.
 - Relocalization failure: manual tile picker.
 - Server restarts lose state (accepted for the hackathon).
+
+
+## Demo rooms (2026-10-25)
+The home screen's **Create demo room** uses `{t:"create",name,demo:true}`. The server loads `server/fixtures/demo-setup.json`: an 8x8 synthetic 1 m grid, one station for each supported task, a fix station and an emergency tile. It returns the ordinary draft `setup` and `lobby` with `demo:true`; the host edits edge stations with the existing editor then confirms. Geometry is never supplied by the client. `demo` defaults to false when absent; the iOS wire helper `createDemo` encodes the existing `create` event with this optional field. Normal create encoding is unchanged. The new fields require the updated server to create demo rooms.
+
+The demo flag is room-owned, included on every lobby (including join/reconnect), and cleared from the UI on leaving. Every demo phone starts manual position reporting immediately, without starting AR, downloading an ARWorldMap or offering AR retry. A demo badge identifies the synthetic room; the scan action is hidden. Map taps send the usual `tile` intent through the real WebSocket client and two-report server filter. Motion tasks use the existing sensor/2D controls, and Restore power opens the existing touch glyph drawing. The real rules still apply: four connected players, private random roles, task ownership/completion, kill/sabotage cooldowns, meetings, votes and wins. Demo mode does not bypass task validation or grant crew sabotage privileges. No host role picker, round reset or single-player bot mode is added.

@@ -49,6 +49,9 @@ struct WaitingRoomView: View {
         } bar: {
             actions
         }
+        .onChange(of: session.isDemo, initial: true) { _, demo in
+            if demo, session.isHost, session.setupStatus == .needsReview { showSetup = true }
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: session.players.count)
         .fullScreenCover(isPresented: $showSetup) { SetupReviewView() }
         .confirmationDialog("Leave this room?", isPresented: $confirmLeave, titleVisibility: .visible) {

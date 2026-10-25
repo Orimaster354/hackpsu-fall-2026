@@ -155,6 +155,7 @@ struct SessionError: Equatable {
 /// Client to server. Case names follow the `t` values in docs/architecture.md.
 enum ClientIntent: Equatable {
     case create(name: String)
+    case createDemo(name: String)
     case join(room: String, name: String)
     case ready(Bool)
     case editStation(MapStation)
@@ -173,6 +174,7 @@ enum ClientIntent: Equatable {
 
 /// Server to client. Case names follow the `t` values in docs/architecture.md.
 enum ServerEvent: Equatable {
+    case demoStatus(Bool)
     case joined(playerID: String, room: String)
     case lobby(players: [PlayerInfo], grid: MapGrid?, stations: [MapStation], hasMap: Bool)
     case processing(SetupStep)

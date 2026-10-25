@@ -145,7 +145,7 @@ function createAppServer(options = {}) {
         if (message.t === 'create' || message.t === 'join') {
           if (membership) throw new RoomError('ALREADY_JOINED', 'This connection is already in a room.');
           membership = message.t === 'create'
-            ? rooms.create(message.name, socket)
+            ? rooms.create(message.name, socket, message.demo ?? false)
             : rooms.join(message.room, message.name, socket, message.playerId);
           send(socket, { t: 'joined', playerId: membership.player.id, room: membership.room.code });
           if (membership.room.grid) send(socket, membership.room.setupMessage());

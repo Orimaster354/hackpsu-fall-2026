@@ -128,6 +128,7 @@ final class PositionCoordinator {
     private(set) var mode: TileSource
     /// True once AR has been searching longer than `searchTimeout` (docs: 20 s) or has failed.
     private(set) var offerManual = false
+    private(set) var manualOnly = false
     let manual = ManualPositionProvider()
     let ar: (any PositionProvider)?
 
@@ -141,7 +142,7 @@ final class PositionCoordinator {
         mode = ar == nil ? .manual : .ar
     }
 
-    var canUseAR: Bool { ar != nil }
+    var canUseAR: Bool { ar != nil && !manualOnly }
     var isRunning: Bool { loop != nil }
 
     var active: any PositionProvider {
@@ -154,10 +155,12 @@ final class PositionCoordinator {
     /// What AR is doing, whichever source is active. Manual tiles do not hide an AR problem.
     var arDetail: PositionDetail { ar?.detail ?? .idle }
 
-    func begin(grid: MapGrid, report: @escaping (MapTile, TileSource) -> Void) {
+    func begin(grid: MapGrid, manualOnly: Bool = false, report: @escaping (MapTile, TileSource) -> Void) {
         guard loop == nil else { return }
+        self.manualOnly = manualOnly
+        if manualOnly { mode = .manual; ar?.stop() }
         manual.start(on: grid)
-        ar?.start(on: grid)
+        if !manualOnly { ar?.start(on: grid) }
         loop = Task { [weak self] in
             var searchingSince: Date?
             var seenRetry = 0
@@ -171,7 +174,9 @@ final class PositionCoordinator {
                     if current.status == .searching {
                         let since = searchingSince ?? Date()
                         searchingSince = since
-                        if Date().timeIntervalSince(since) > self.searchTimeout.seconds { self.offerManual = true }
+                        let timeout = self.searchTimeout.components
+                        let seconds = Double(timeout.seconds) + Double(timeout.attoseconds) * 1e-18
+                        if Date().timeIntervalSince(since) > seconds { self.offerManual = true }
                     } else {
                         searchingSince = nil
                     }
@@ -187,6 +192,7 @@ final class PositionCoordinator {
         loop = nil
         manual.stop()
         manual.reset()
+        manualOnly = false
         ar?.stop()
         offerManual = false
         mode = ar == nil ? .manual : .ar
@@ -200,7 +206,7 @@ final class PositionCoordinator {
     /// Switch to AR. If AR had given up, this is a retry: switching the source alone would leave it stuck on the
     /// old failure, so it starts a fresh attempt. If AR is working or still searching, it just switches.
     func useAR() {
-        guard let ar else { return }
+        guard canUseAR, let ar else { return }
         mode = .ar
         offerManual = false
         if ar.detail.isProblem { restartAR(ar) }
@@ -209,7 +215,7 @@ final class PositionCoordinator {
     /// "Retry AR": always a fresh attempt. Reloads the room's ARWorldMap and relocalizes again in the same
     /// coordinate frame. Works from manual mode too, and clears the manual-tiles offer.
     func retryAR() {
-        guard let ar else { return }
+        guard canUseAR, let ar else { return }
         mode = .ar
         offerManual = false
         restartAR(ar)

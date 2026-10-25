@@ -293,7 +293,7 @@ struct GameView: View {
 
     @ViewBuilder private var crewControls: some View {
         if session.canFixHere, let fix = session.fixStation {
-            if canFixInAR {
+            if canFixInAR || session.isDemo {
                 Button { openFixTrace() } label: {
                     Label("Restore power", systemImage: "bolt.fill")
                 }

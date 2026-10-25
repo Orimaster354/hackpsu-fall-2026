@@ -22,6 +22,7 @@ final class GameSession {
     private(set) var grid: MapGrid?
     private(set) var stations: [MapStation] = []
     private(set) var hasMap = false
+    private(set) var isDemo = false
     private(set) var setupStep: SetupStep?
     private(set) var setupConfirmed = false
     /// Counts every `setup` event received. It goes up even when the new grid equals the old one, which is what
@@ -99,10 +100,10 @@ final class GameSession {
 
     // MARK: Lobby intents
 
-    func createRoom(name: String) {
+    func createRoom(name: String, demo: Bool = false) {
         let name = PlayerName.normalized(name)
         guard pending == nil, PlayerName.isValid(name) else { return }
-        begin(.create, sending: .create(name: name))
+        begin(.create, sending: demo ? .createDemo(name: name) : .create(name: name))
     }
 
     func joinRoom(code: String, name: String) {
@@ -166,6 +167,7 @@ final class GameSession {
         grid = nil
         stations = []
         hasMap = false
+        isDemo = false
         setupStep = nil
         setupConfirmed = false
         phase = .lobby
@@ -242,6 +244,8 @@ final class GameSession {
 
     func receive(_ event: ServerEvent) {
         switch event {
+        case let .demoStatus(demo):
+            isDemo = demo
         case let .joined(playerID, room):
             myID = playerID
             roomCode = room

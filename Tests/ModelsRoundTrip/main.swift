@@ -99,6 +99,7 @@ check(decode(#"{"t":"joined"}"#) == nil, "missing field fails to decode")
 
 // MARK: Client messages (encode to the documented JSON)
 
+check(wire(.createDemo(name: "Ada")) == #"{"demo":true,"name":"Ada","t":"create"}"#, "demo create")
 check(wire(.create(name: "Ada")) == #"{"name":"Ada","t":"create"}"#, "create")
 check(wire(.join(room: "ABCD", name: "Bo")) == #"{"name":"Bo","room":"ABCD","t":"join"}"#, "join (no playerId key)")
 check(wire(.join(room: "ABCD", name: "Bo", playerId: "p2")) == #"{"name":"Bo","playerId":"p2","room":"ABCD","t":"join"}"#, "join reconnect")
@@ -123,16 +124,16 @@ check(wire(.editStation(Station(id: "dial", name: "Door", tile: Tile(x: 0, y: 0)
 
 // MARK: Lobby host id and scan uploads
 
-if case let .lobby(snapshot)? = decode(#"{"t":"lobby","hostId":"p1","players":#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","hostId":"p1","players":\#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
     check(snapshot.hostId == "p1", "lobby hostId")
 } else { print("FAIL lobby hostId"); failures += 1 }
-if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
     check(snapshot.hostId == nil, "lobby without hostId (older server)")
 } else { print("FAIL lobby without hostId"); failures += 1 }
 
 let scanPose = CameraPose(x: 2, y: 1.4, z: 2, qx: 0, qy: 0, qz: 0, qw: 1)
 let sortedEncoder = JSONEncoder()
-sortedEncoder.outputFormatting = [.sortedKeys]
+sortedEncoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
 func json<T: Encodable>(_ value: T) -> String { String(data: try! sortedEncoder.encode(value), encoding: .utf8)! }
 
 roundTrip(PoseSample(t: 0.1, pose: scanPose), "PoseSample")
@@ -179,6 +180,13 @@ if case let .lobby(snapshot)? = fixture("server/fixtures/lobby-empty.json") {
 if case let .state(state)? = fixture("server/fixtures/state-playing.json") {
     check(state.players.count == 4 && state.meeting == nil, "server/fixtures/state-playing.json")
 }
+
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","demo":true,"players":[],"grid":null,"stations":[],"hasMap":false,"setupConfirmed":false}"#) {
+    check(snapshot.demo, "demo lobby flag")
+} else { print("FAIL demo lobby"); failures += 1 }
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":[],"grid":null,"stations":[],"hasMap":false}"#) {
+    check(!snapshot.demo, "older server defaults to normal room")
+} else { print("FAIL normal lobby"); failures += 1 }
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

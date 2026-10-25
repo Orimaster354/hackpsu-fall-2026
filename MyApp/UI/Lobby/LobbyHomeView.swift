@@ -43,6 +43,16 @@ struct LobbyHomeView: View {
                     .buttonStyle(.game(.primary, busy: isCreating))
                     .accessibilityIdentifier("createRoomButton")
 
+                    Button { session.createRoom(name: name, demo: true) } label: {
+                        Label("Create demo room", systemImage: "gamecontroller.fill")
+                    }
+                    .buttonStyle(.game(.secondary))
+                    .accessibilityIdentifier("createDemoRoomButton")
+                    Text("No scan · Editable task map · Manual movement · 4 players")
+                        .font(.caption)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .multilineTextAlignment(.center)
+
                     Button("Join room", action: onJoin)
                         .buttonStyle(.game(.secondary))
                         .accessibilityIdentifier("joinRoomButton")

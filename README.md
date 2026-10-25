@@ -25,6 +25,9 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 2. Server: `cd server && npm install && cp .env.example .env` (set `GEMINI_API_KEY`), then `npm start`. It listens on port 8080.
 3. Network: join all phones to one phone hotspot, run the server on a laptop on it, and enter the laptop's LAN IP in the app's settings.
 
+## Demo without scanning
+Run the normal server (`cd server && npm start`), then enter a name and tap **Create demo room**. The host can edit the preset 8x8 map and choose task types before confirming. Three other phones join the room code normally; all four use map taps to move. Tasks use actual motion sensors, and the fix station offers touch glyph drawing. Demo rooms skip scanning and AR relocalization; normal rooms remain available through **Create room**. Use the updated server for the demo button.
+
 ## Docs
 - `docs/architecture.md`: modules, models, protocol.
 - `docs/tasks.md`: ordered checklist with owners.

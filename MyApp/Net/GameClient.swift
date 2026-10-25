@@ -127,7 +127,7 @@ final class GameClient {
     /// should react to `status` rather than queue sends.
     func send(_ message: ClientMessage) {
         switch message {
-        case let .create(name): playerName = name
+        case let .create(name), let .createDemo(name): playerName = name
         case let .join(_, name, _): playerName = name
         default: break
         }

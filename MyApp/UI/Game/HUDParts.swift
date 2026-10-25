@@ -194,7 +194,8 @@ struct PositionSheet: View {
                         }
                         .pickerStyle(.segmented)
                     } else {
-                        Label("AR tracking is not connected yet. You place yourself on the map.", systemImage: "hand.tap.fill")
+                        Label(position.manualOnly ? "Demo room: tap map tiles to move."
+                              : "AR tracking is not connected yet. You place yourself on the map.", systemImage: "hand.tap.fill")
                     }
                 } header: {
                     Text("Source")

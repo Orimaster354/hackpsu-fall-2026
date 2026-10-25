@@ -43,7 +43,7 @@ struct SetupReviewView: View {
                 confirmBar
             }
             .background { GameBackdrop().ignoresSafeArea() }
-            .navigationTitle("Room setup")
+            .navigationTitle(session.isDemo ? "Demo room setup" : "Room setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }

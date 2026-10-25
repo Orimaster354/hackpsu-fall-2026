@@ -90,7 +90,17 @@ struct RootView: View {
         .environment(session)
         .environment(position)
         .environment(\.gameAudio, audio)
-        .environment(\.startRoomScan, scanAction)
+        .environment(\.startRoomScan, session.isDemo ? nil : scanAction)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if session.isDemo {
+                Label("DEMO MODE · Manual movement", systemImage: "gamecontroller.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.7))
+            }
+        }
         .preferredColorScheme(.dark)
         .tint(Theme.Palette.crew)
         .onChange(of: audioScene, initial: true) { _, scene in audio.setScene(scene) }
@@ -167,7 +177,7 @@ struct RootView: View {
     private func syncWithStage() {
         switch session.stage {
         case .roleReveal, .playing, .meeting, .result:
-            if let grid = session.grid { position.begin(grid: grid, report: session.reportTile) }
+            if let grid = session.grid { position.begin(grid: grid, manualOnly: session.isDemo, report: session.reportTile) }
         case .home, .lobby, .ended:
             position.end()
         }

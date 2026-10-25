@@ -39,6 +39,7 @@ enum JSONValue: Codable, Hashable {
 
 enum ClientMessage: Equatable {
     case create(name: String)
+    case createDemo(name: String)
     /// `playerId` is supplied only on reconnect.
     case join(room: String, name: String, playerId: String? = nil)
     case ready(Bool)
@@ -63,7 +64,7 @@ enum ClientMessage: Equatable {
 
     var type: String {
         switch self {
-        case .create: return "create"
+        case .create, .createDemo: return "create"
         case .join: return "join"
         case .ready: return "ready"
         case .suggest: return "suggest"
@@ -87,7 +88,7 @@ enum ClientMessage: Equatable {
 
 extension ClientMessage: Encodable {
     private enum Keys: String, CodingKey {
-        case t, name, room, playerId, ready, photos, boxes
+        case t, name, room, playerId, ready, photos, boxes, demo
         case frameId, timestampMs, jpeg, station, id, delete
         case tile, source, stationId, targetId, bodyId, target
     }
@@ -98,6 +99,9 @@ extension ClientMessage: Encodable {
         switch self {
         case let .create(name):
             try c.encode(name, forKey: .name)
+        case let .createDemo(name):
+            try c.encode(name, forKey: .name)
+            try c.encode(true, forKey: .demo)
         case let .join(room, name, playerId):
             try c.encode(room, forKey: .room)
             try c.encode(name, forKey: .name)
@@ -151,6 +155,8 @@ struct ScanStatus: Codable, Hashable {
 }
 
 struct LobbySnapshot: Codable, Hashable {
+    /// Absent on older servers; only explicit demo rooms have a synthetic grid.
+    var demo: Bool = false
     /// The creator of the room. Use this for host controls instead of relying on player order. nil from older servers.
     var hostId: String?
     var players: [Player]
@@ -172,6 +178,7 @@ struct LobbySnapshot: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        demo = try c.decodeIfPresent(Bool.self, forKey: .demo) ?? false
         hostId = try c.decodeIfPresent(String.self, forKey: .hostId)
         players = try c.decode([Player].self, forKey: .players)
         grid = try c.decodeIfPresent(Grid.self, forKey: .grid)

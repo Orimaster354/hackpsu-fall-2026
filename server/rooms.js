@@ -2,6 +2,7 @@ const { randomInt, randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
 const { RoomError } = require('./errors');
 const { Game } = require('./game');
+const demoSetup = require('./fixtures/demo-setup.json');
 
 const MAX_PLAYERS = 4;
 const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -26,6 +27,7 @@ function send(socket, message) {
 class Room {
   constructor(code, options = {}) {
     this.code = code;
+    this.demo = options.demo === true;
     this.hostId = null;
     this.players = new Map();
     this.grid = null;
@@ -36,7 +38,8 @@ class Room {
     this.hasMap = false;
     this.phase = 'lobby';
     this.game = new Game(this, options);
-    if (options.manualSetup) this.game.applySetup(options.manualSetup);
+    if (this.demo) this.game.applySetup(demoSetup);
+    else if (options.manualSetup) this.game.applySetup(options.manualSetup);
   }
 
   addPlayer(name, socket, playerId) {
@@ -106,6 +109,7 @@ class Room {
   lobbyMessage() {
     return {
       t: 'lobby',
+      demo: this.demo,
       hostId: this.hostId,
       players: this.publicPlayers(),
       grid: this.grid,
@@ -143,12 +147,13 @@ class RoomManager {
     this.options = options;
   }
 
-  create(name, socket) {
+  create(name, socket, demo = false) {
+    if (typeof demo !== 'boolean') throw new RoomError('INVALID_DEMO', 'demo must be a boolean.');
     let code;
     do {
       code = roomCode();
     } while (this.rooms.has(code));
-    const room = new Room(code, this.options);
+    const room = new Room(code, { ...this.options, demo });
     const player = room.addPlayer(name, socket);
     this.rooms.set(code, room);
     return { room, player };

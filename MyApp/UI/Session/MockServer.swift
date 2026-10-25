@@ -71,6 +71,8 @@ final class MockServer {
     private func process(_ intent: ClientIntent) {
         switch intent {
         case let .create(name): create(name: name)
+        case .createDemo:
+            session?.receive(.error(SessionError(code: "demo", message: "Demo rooms need the live server. Launch without mock arguments.")))
         case let .join(room, name): join(room: room, name: name)
         case let .editStation(station): editStation(station)
         case let .deleteStation(id): deleteStation(id)
