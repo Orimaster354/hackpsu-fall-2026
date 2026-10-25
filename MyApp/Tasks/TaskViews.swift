@@ -205,9 +205,11 @@ struct SteadyTaskView: View {
         }
         .drive($model, context) { sample in
             context.telemetry.good = model.upright && model.steady
-            // The dot shows the shake: it jumps with rotation and acceleration, and rests when still.
-            let amount = min(1, (sample.rotationRate / 2 + sample.userAcceleration) / 1.0)
-            wobble = CGSize(width: .random(in: -1 ... 1) * amount * 80, height: .random(in: -1 ... 1) * amount * 80)
+            // The dot shows the shake against the same limits the rule uses: it rests in the center while the
+            // phone is inside them, nudges a little as it nears them, and jumps once it is past them.
+            let amount = min(1.5, max(sample.rotationRate / SteadyModel.maxRotation, sample.userAcceleration / SteadyModel.maxAcceleration))
+            let reach = amount * amount * 40
+            wobble = CGSize(width: .random(in: -1 ... 1) * reach, height: .random(in: -1 ... 1) * reach)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Hold the phone upright and steady")
@@ -240,7 +242,7 @@ struct PatternTaskView: View {
                     }
                 }
             }
-            Text(model.flat ? "Tilt the phone the way the arrow points, then level it" : "Hold the phone flat")
+            Text(model.flat ? "Lower the edge the arrow points to, then level the phone" : "Hold the phone flat")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center)
