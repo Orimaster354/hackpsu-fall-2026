@@ -1,7 +1,8 @@
 import Foundation
 
-// UI-side shapes for the lobby and role screens. They carry only what these screens read.
-// When `MyApp/Models` lands, the integration layer maps the wire models onto these and calls
+// UI-side shapes for the screens. They mirror the models in docs/architecture.md but carry
+// distinct names (MapTile, PlayerInfo, MapGrid, MapStation, GameSnapshot) so they cannot collide
+// with `MyApp/Models` when it lands. The integration layer maps wire models onto these and calls
 // `GameSession.receive(_:)`, so the views do not change.
 //
 // Gaps in docs/architecture.md found while building this:
@@ -9,10 +10,86 @@ import Foundation
 //  - There is no `ready` intent, so "ready" is derived from the player count.
 //  - There is no `leave` intent, so leaving only resets the client and disconnects.
 //  - `error` codes are not listed. The codes used by the mock are placeholders.
+//  - Nothing tells a client that setup is confirmed. The host treats its own `confirmSetup` as
+//    confirmed until a new `setup` arrives.
+//  - `GameState` has no per-player task completion and no emergency usage. The client keeps its own.
+//  - `GameState` has no server time, so countdowns compare `endsAt` with the phone clock.
+//  - `result` names no impostor for a win by kills or tasks, so the end screen cannot reveal them.
 
-struct LobbyPlayer: Identifiable, Hashable {
+/// A cell on the room grid. docs: `Tile { x, y }`, y runs along the floor's z axis.
+struct MapTile: Hashable, Comparable {
+    var x: Int
+    var y: Int
+
+    static func < (a: MapTile, b: MapTile) -> Bool { (a.y, a.x) < (b.y, b.x) }
+}
+
+/// Raw values are the wire strings.
+enum TileSource: String {
+    case ar, manual
+}
+
+/// docs: `Player`.
+struct PlayerInfo: Identifiable, Hashable {
     let id: String
-    let name: String
+    var name: String
+    var tile: MapTile?
+    var alive: Bool
+    var tileSource: TileSource
+
+    init(id: String, name: String, tile: MapTile? = nil, alive: Bool = true, tileSource: TileSource = .manual) {
+        self.id = id
+        self.name = name
+        self.tile = tile
+        self.alive = alive
+        self.tileSource = tileSource
+    }
+}
+
+/// docs: `Grid`. `edge` is a subset of `playable`.
+struct MapGrid: Equatable {
+    var cols: Int
+    var rows: Int
+    var tileSize = 1.0
+    var originX = 0.0
+    var originZ = 0.0
+    var playable: Set<MapTile>
+    var edge: Set<MapTile>
+
+    func contains(_ tile: MapTile) -> Bool { playable.contains(tile) }
+
+    /// World position (x, z) of a tile's center. docs, AR view: `originX + (x + 0.5)`.
+    func worldCenter(of tile: MapTile) -> (x: Double, z: Double) {
+        (originX + (Double(tile.x) + 0.5) * tileSize, originZ + (Double(tile.y) + 0.5) * tileSize)
+    }
+
+    /// The tile under a world position. docs, positioning: `floor((pos - origin) / 1.0)`.
+    /// It may fall outside `playable`, and the server decides what to do with that.
+    func tile(atX x: Double, z: Double) -> MapTile {
+        MapTile(
+            x: Int(((x - originX) / tileSize).rounded(.down)),
+            y: Int(((z - originZ) / tileSize).rounded(.down))
+        )
+    }
+}
+
+/// Raw values are the wire strings.
+enum StationKind: String {
+    case task, fix, emergency
+}
+
+/// docs: `TaskType`. Raw values are the wire strings.
+enum TaskKind: String, CaseIterable {
+    case shake, tilt, dial, hold, gesture
+}
+
+/// docs: `Station`.
+struct MapStation: Identifiable, Hashable {
+    let id: String
+    var name: String
+    var tile: MapTile
+    var task: TaskKind
+    var kind: StationKind
 }
 
 /// Raw values are the wire strings.
@@ -23,6 +100,53 @@ enum PlayerRole: String {
 /// Raw values are the wire strings.
 enum GamePhase: String {
     case lobby, playing, meeting, ended
+}
+
+/// Raw values are the wire strings.
+enum MeetingReason: String {
+    case report, emergency
+}
+
+/// A vote target: a player id, or "skip" on the wire.
+enum Vote: Hashable {
+    case player(String)
+    case skip
+}
+
+/// docs: `MeetingState`. `endsAt` is epoch ms on the wire.
+struct MeetingInfo: Equatable {
+    var reason: MeetingReason
+    var bodyOf: String?
+    var endsAt: Date
+    var votes: [String: Vote]
+}
+
+/// Raw values are the wire strings.
+enum Winner: String {
+    case crew, impostor
+}
+
+/// docs: server to client `result`.
+struct MeetingResult: Equatable {
+    var ejected: String?
+    var role: PlayerRole?
+    var winner: Winner?
+}
+
+/// docs: `GameState`. Times are `Date`, converted from epoch ms by the integration layer.
+struct GameSnapshot: Equatable {
+    var phase: GamePhase
+    var players: [PlayerInfo]
+    var tasksDone: Int
+    var tasksTotal: Int
+    var lightsOut: Bool
+    var killCooldownEndsAt: Date?
+    var meeting: MeetingInfo?
+}
+
+/// docs: server to client `processing` step.
+enum SetupStep: String {
+    case polygon, gemini, placing
 }
 
 struct SessionError: Equatable {
@@ -39,15 +163,31 @@ struct SessionError: Equatable {
 enum ClientIntent: Equatable {
     case create(name: String)
     case join(room: String, name: String)
+    case editStation(MapStation)
+    case deleteStation(id: String)
+    case confirmSetup
     case start
+    case tile(MapTile, source: TileSource)
+    case taskDone(stationID: String)
+    case kill(targetID: String)
+    case report(bodyID: String)
+    case emergency
+    case vote(Vote)
+    case sabotage
+    case fix(stationID: String)
 }
 
 /// Server to client. Case names follow the `t` values in docs/architecture.md.
 enum ServerEvent: Equatable {
     case joined(playerID: String, room: String)
-    case lobby(players: [LobbyPlayer])
+    case lobby(players: [PlayerInfo], grid: MapGrid?, stations: [MapStation], hasMap: Bool)
+    case processing(SetupStep)
+    case setup(grid: MapGrid, stations: [MapStation])
     case role(PlayerRole)
-    case state(phase: GamePhase)
+    case state(GameSnapshot)
+    case killed
+    case meeting(MeetingInfo)
+    case result(MeetingResult)
     case error(SessionError)
 }
 
@@ -87,4 +227,6 @@ enum PlayerName {
 enum SettingsKey {
     static let playerName = "playerName"
     static let serverAddress = "serverAddress"
+    /// Testing aid in manual mode: draw every player on the map.
+    static let showEveryone = "showEveryone"
 }

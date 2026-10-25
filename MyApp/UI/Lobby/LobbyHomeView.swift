@@ -69,7 +69,7 @@ struct LobbyHomeView: View {
     private var header: some View {
         VStack(spacing: 12) {
             Image(systemName: "moon.stars.fill")
-                .font(.system(size: 44))
+                .font(.system(size: 44, weight: .bold))
                 .foregroundStyle(Theme.Palette.crew)
             Text("IRL Among Us")
                 .font(.system(.largeTitle, design: .rounded, weight: .heavy))
@@ -88,7 +88,7 @@ struct LobbyHomeView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .accessibilityHidden(true)
-            TextField("Your name", text: $name, prompt: Text("Enter a name").foregroundStyle(.white.opacity(0.4)))
+            TextField("Your name", text: $name, prompt: Text("Enter a name").foregroundStyle(Theme.Palette.placeholder))
                 .font(.system(.title3, design: .rounded, weight: .semibold))
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()

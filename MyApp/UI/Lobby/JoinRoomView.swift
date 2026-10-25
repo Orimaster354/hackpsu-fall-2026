@@ -23,7 +23,7 @@ struct JoinRoomView: View {
                 .multilineTextAlignment(.center)
                 .staggeredEntrance(0)
 
-                TextField("Room code", text: $code, prompt: Text("ABCD").foregroundStyle(.white.opacity(0.25)))
+                TextField("Room code", text: $code, prompt: Text("ABCD").foregroundStyle(Theme.Palette.placeholder))
                     .font(.system(size: codeSize, weight: .heavy, design: .monospaced))
                     .tracking(codeSize * 0.2)
                     .multilineTextAlignment(.center)
@@ -33,7 +33,7 @@ struct JoinRoomView: View {
                     .submitLabel(.join)
                     .focused($codeFocused)
                     .padding(.vertical, 20)
-                    .gameCard()
+                    .gameCard(radius: Theme.Radius.control)
                     .onChange(of: code) {
                         code = RoomCode.clamp(code)
                         session.dismissError()
