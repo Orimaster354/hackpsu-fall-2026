@@ -5,6 +5,7 @@ const os=require('node:os');
 const {spawn}=require('node:child_process');
 const {RoomError,requireAction}=require('./errors');
 const {CLASSES,NOTE,validBox}=require('./yoloDetector');
+const {selectModel,modelReady}=require('./yoloConfig');
 function validateSweepResult(result,frames,intrinsics){
   requireAction(Array.isArray(result?.frames) && result.frames.length===frames.length,'SCAN_FAILED','Detector omitted sweep frames.');
   const seen=new Set();
@@ -28,9 +29,10 @@ function validateSweepResult(result,frames,intrinsics){
     return {index:source.index,t:source.t,pose:source.pose,detections};
   });
 }
-function createSweepDetector({pythonPath=process.env.YOLOE_PYTHON || path.join(__dirname,'.venv-yolo',process.platform==='win32'?'Scripts/python.exe':'bin/python'),
-  ready=fs.existsSync(path.join(__dirname,'.cache/yoloe/ready.json')),spawnImpl=spawn,timeoutMs=600000}={}){
-  return {async detect(frames,intrinsics,{signal,onFrame=()=>{}}={}){
+function createSweepDetector({model=selectModel(),pythonPath=process.env.YOLOE_PYTHON || path.join(__dirname,'.venv-yolo',process.platform==='win32'?'Scripts/python.exe':'bin/python'),
+  ready=modelReady(model),spawnImpl=spawn,timeoutMs=600000}={}){
+  selectModel(model);
+  return {model,async detect(frames,intrinsics,{signal,onFrame=()=>{}}={}){
     requireAction(ready && fs.existsSync(pythonPath),'SCAN_FAILED','YOLOE is not ready; install and warm up the local detector.');
     signal?.throwIfAborted();
     const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'roomshift-sweep-'));
@@ -40,7 +42,7 @@ function createSweepDetector({pythonPath=process.env.YOLOE_PYTHON || path.join(_
         const filename=path.join(directory,`${i}.jpg`);await fsp.writeFile(filename,frame.bytes);specs.push({path:filename,index:frame.index});
       }
       return await new Promise((resolve,reject)=>{
-        const env={...process.env,PYTHONUNBUFFERED:'1',PYTHONUTF8:'1'};delete env.GEMINI_API_KEY;
+        const env={...process.env,YOLOE_MODEL:model,PYTHONUNBUFFERED:'1',PYTHONUTF8:'1'};delete env.GEMINI_API_KEY;
         const child=spawnImpl(pythonPath,[path.join(__dirname,'tools/yoloe_worker.py')],{cwd:__dirname,env,windowsHide:true,stdio:['pipe','pipe','pipe']});
         let pending='',stderr='',total=0,output,failure;
         const abort=()=>{failure=new RoomError('SCAN_FAILED','Sweep detection cancelled.');child.kill();};

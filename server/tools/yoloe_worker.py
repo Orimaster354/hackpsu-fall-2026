@@ -10,7 +10,10 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / ".cache" / "yoloe"
-MODEL = "yoloe-26s-seg.pt"
+MODEL_CONFIG = json.loads((ROOT / "yolo-models.json").read_text(encoding="utf-8"))
+MODEL = os.environ.get("YOLOE_MODEL", MODEL_CONFIG["defaultModel"])
+if MODEL not in MODEL_CONFIG["allowedModels"]:
+    raise ValueError("Unsupported YOLOE_MODEL checkpoint.")
 NOTE = "sticky note"
 CLASSES = [NOTE, "door", "window", "whiteboard", "light switch", "electrical outlet", "clock", "poster", "fire extinguisher", "air vent",
            "bookshelf", "desk", "table", "sofa", "chair", "plant", "television", "monitor", "refrigerator", "sink", "lamp", "picture", "backpack"]
@@ -302,13 +305,13 @@ def analyze_sweep(model, specs):
 
 
 def main():
-    emit({"type": "progress", "message": "Loading YOLOE-26 Small: sticky-note candidates and wall context on CPU..."})
+    emit({"type": "progress", "message": f"Loading {MODEL}: sticky-note candidates and wall context on CPU..."})
     model = load_model()
     if "--warmup" in sys.argv:
         import numpy as np
         with contextlib.redirect_stdout(sys.stderr):
             model.predict(np.zeros((640, 640, 3), dtype=np.uint8), device="cpu", imgsz=640, verbose=False)
-        (CACHE / "ready.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES[:10], "prompts": PROMPTS[:10]}), encoding="utf-8")
+        (CACHE / f"ready-{Path(MODEL).stem}.json").write_text(json.dumps({"model": MODEL, "classes": CLASSES[:10], "prompts": PROMPTS[:10]}), encoding="utf-8")
         emit({"type": "ready", "model": MODEL, "classes": CLASSES[:10]})
         return
     job = json.load(sys.stdin)

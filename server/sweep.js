@@ -59,6 +59,7 @@ async function processSweep(room,body,{sweepDetector,stationPlanner,signal,befor
   scanMonitor?.event(monitorRun,`Analyzing ${input.frames.length} app JPEG frames with YOLOE.`);
   room.broadcast({t:'processing',step:'gemini'});
   const detector=sweepDetector || require('./sweepDetector').createSweepDetector();
+  scanMonitor?.update(monitorRun,{detectorModel:detector.model});
   const reportFrame=frame=>scanMonitor?.frame(monitorRun,frame,input.frames.find(f=>f.index===frame.index),input.intrinsics);
   const frames=await detector.detect(input.frames,input.intrinsics,{signal,onFrame:reportFrame});
   for(const frame of frames)reportFrame(frame);

@@ -5,7 +5,7 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { RoomError, requireAction } = require('./errors');
 
-const MODEL = 'yoloe-26s-seg.pt';
+const {MODEL,selectModel,modelReady}=require('./yoloConfig');
 const NOTE = 'sticky note';
 const CLASSES = [NOTE, 'door', 'window', 'whiteboard', 'light switch', 'electrical outlet', 'clock', 'poster', 'fire extinguisher', 'air vent',
   'bookshelf','desk','table','sofa','chair','plant','television','monitor','refrigerator','sink','lamp','picture','backpack'];
@@ -14,8 +14,8 @@ function validBox(box) {
     && box[2] > 0 && box[3] > 0 && box[0] + box[2] <= 1.000001 && box[1] + box[3] <= 1.000001;
 }
 
-function validateYoloResult(result, videos) {
-  requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === videos.length,
+function validateYoloResult(result, videos, model=MODEL) {
+  requireAction(result?.model === model && Array.isArray(result.passes) && result.passes.length === videos.length,
     'YOLOE_INVALID_RESPONSE', 'YOLOE returned an invalid result.');
   const seen = new Set();
   const passes = result.passes.map((pass) => {
@@ -60,7 +60,7 @@ function validateYoloResult(result, videos) {
       framesAnalyzed: Number.isInteger(pass.framesAnalyzed) ? pass.framesAnalyzed : null,
       timestampSource: pass.timestampSource === 'decoder presentation time' ? pass.timestampSource : 'frame-index/fps fallback' };
   });
-  return { model: MODEL, passes, analysis: { engine: 'yoloe', device: 'cpu', fps: 1, confidenceThreshold: 0.35,
+  return { model, passes, analysis: { engine: 'yoloe', device: 'cpu', fps: 1, confidenceThreshold: 0.35,
     classes: CLASSES.slice(0,10), maxObjectsPerPass: 8, maxCandidatesPerClass: 8, imageSize: 960, candidateLabel: NOTE,
     contextMetric: 'same-frame box gap / image diagonal; not meters',
     deduplication: 'short image-space overlap tracks; not persistent world identities' },
@@ -68,10 +68,11 @@ function validateYoloResult(result, videos) {
     usage: null, cleanupWarnings: [] };
 }
 
-function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join(__dirname, '.venv-yolo',
+function createYoloDetector({ model=selectModel(),pythonPath = process.env.YOLOE_PYTHON || path.join(__dirname, '.venv-yolo',
   process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'), spawnImpl = spawn,
-  ready = fs.existsSync(path.join(__dirname, '.cache/yoloe/ready.json')), timeoutMs = 600000 } = {}) {
-  return { model: MODEL, configured: Boolean(ready && fs.existsSync(pythonPath)),
+  ready = modelReady(model), timeoutMs = 600000 } = {}) {
+  selectModel(model);
+  return { model, configured: Boolean(ready && fs.existsSync(pythonPath)),
     quality: { fps: 1, maxObjectsPerPass: 8, device: 'cpu', confidenceThreshold: 0.35, imageSize: 960, candidateLabel: NOTE },
     async detect(videos, { signal, notify = () => {} } = {}) {
       requireAction(ready && fs.existsSync(pythonPath), 'YOLOE_NOT_READY', 'Install requirements-yoloe.txt and run tools/yoloe_worker.py --warmup with the isolated Python runtime.');
@@ -86,7 +87,7 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
           specs.push({ pass: video.pass, path: file, duration: video.duration });
         }
         const result = await new Promise((resolve, reject) => {
-          const environment = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' };
+          const environment = { ...process.env, YOLOE_MODEL:model, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' };
           delete environment.GEMINI_API_KEY;
           const child = spawnImpl(pythonPath, [path.join(__dirname, 'tools/yoloe_worker.py')],
             { cwd: __dirname, windowsHide: true, env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -109,7 +110,7 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
               try {
                 const event = JSON.parse(line);
                 if (event.type === 'progress' && typeof event.message === 'string') notify(event.message.slice(0, 300));
-                else if (event.type === 'result') final = validateYoloResult(event, videos);
+                else if (event.type === 'result') final = validateYoloResult(event, videos,model);
                 else if (event.type === 'error') failure = new RoomError('YOLOE_FAILED', 'Local YOLOE could not analyze the videos. Check the backend log.');
               } catch (error) { failure = error instanceof RoomError ? error : new RoomError('YOLOE_INVALID_RESPONSE', 'Invalid output from local detector.'); child.kill(); }
             }
