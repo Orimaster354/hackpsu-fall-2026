@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ROOMSHIFT · Mission control</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+  <script src="/dashboard/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/dashboard"><span class="brand-icon">R</span>ROOMSHIFT <span class="slash">/</span> <span class="subtitle">MISSION CONTROL</span></a><span id="server-status" class="badge muted" role="status">Connecting…</span></header>
+  <main>
+    <div class="heading"><div><p class="eyebrow">MULTIPLAYER BACKEND</p><h1>A clear view of your crew.</h1><p class="description">Live rooms, connections, and lobby readiness. All in one place.</p></div><div class="refresh"><span class="pulse"></span><span id="updated">Waiting for server</span><button id="refresh" class="icon-button" aria-label="Refresh dashboard">↻</button></div></div>
+    <section class="stats" aria-label="Server totals">
+      <article><span>Rooms</span><strong id="room-count">—</strong><small>In-memory sessions</small></article>
+      <article><span>Connected players</span><strong id="connected-count">—</strong><small id="registered-count">Waiting for data</small></article>
+      <article><span>Ready to play</span><strong id="ready-count">—</strong><small>Connected and ready</small></article>
+      <article><span>Server uptime</span><strong id="uptime">—</strong><small>Since last restart</small></article>
+    </section>
+    <div id="error" class="error" role="alert" hidden></div>
+    <div class="workspace">
+      <section class="panel rooms-panel"><div class="panel-heading"><div><p class="eyebrow">ROOM DIRECTORY</p><h2>Live sessions <span id="room-badge" class="count">0</span></h2></div><span class="hint">Updates every second</span></div><div id="room-tabs" class="room-tabs" aria-label="Select a room"></div><div id="room-content"><div class="empty"><span class="empty-icon">⌘</span><h3>Waiting for your first crew</h3><p>Create a room from an iPhone or launch the test crew.</p></div></div></section>
+      <aside>
+        <section class="panel"><div class="panel-heading"><div><p class="eyebrow">LOCAL TESTING</p><h2>Test crew</h2></div><span class="badge muted">SIMULATED</span></div><p class="helper">Open four real WebSocket connections from this browser and watch the lobby sync.</p><button id="launch" class="primary">Launch 4 test players <span>↗</span></button><div id="simulation"></div><div class="button-row"><button id="ready-all" disabled>Ready all</button><button id="disconnect-all" disabled>Disconnect all</button></div><p id="simulation-status" class="footnote" role="status">Uses the same events as the iPhone app.</p></section>
+        <section class="panel system"><p class="eyebrow">SERVER DETAILS</p><dl><div><dt>Transport</dt><dd>WebSocket · JSON</dd></div><div><dt>Storage</dt><dd>In memory</dd></div><div><dt>Open sockets</dt><dd id="socket-count">—</dd></div><div><dt>Dashboard access</dt><dd>This laptop</dd></div></dl><p class="footnote">Rooms reset when the server restarts. Private roles and reconnect credentials are excluded.</p><p><a class="badge" href="/dashboard/live">Open live scan tester →</a></p></section>
+      </aside>
+    </div>
+    <section class="panel activity"><div class="panel-heading"><div><p class="eyebrow">OBSERVED CHANGES</p><h2>Activity</h2></div><button id="clear-log" class="text-button">Clear</button></div><ol id="activity"><li class="quiet">Connection and readiness changes will appear here.</li></ol><p class="footnote">Observed by this dashboard while open; not a persistent server log.</p></section>
+    <footer><span>ROOMSHIFT / BACKEND OBSERVATORY</span><span>Phase 1 · Lobby foundation</span></footer>
+  </main>
+</body>
+</html>
