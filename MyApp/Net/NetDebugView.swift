@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Throwaway screen for checking GameClient against the real server on a physical iPhone.
-/// Not the game UI. Show it by putting `NetDebugView()` in ContentView's body (locally).
+/// Not the game UI. Not wired into the app. To use it, temporarily show `NetDebugView()` from ContentView (do not commit that).
 struct NetDebugView: View {
     @State private var client = GameClient()
     @AppStorage(ServerConfig.defaultsKey) private var address = ""
@@ -91,7 +91,7 @@ struct NetDebugView: View {
     private func connect() {
         connectAction = "Connect tapped"
         guard let endpoint = ServerConfig.parse(address) else {
-            connectAction = "Invalid address — enter 104.39.241.215:8080"
+            connectAction = "Invalid address. Enter host:port, for example 192.168.1.20:8080"
             note(connectAction)
             return
         }
