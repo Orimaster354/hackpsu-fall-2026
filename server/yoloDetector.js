@@ -7,14 +7,15 @@ const { RoomError, requireAction } = require('./errors');
 
 const MODEL = 'yoloe-26s-seg.pt';
 const NOTE = 'sticky note';
-const CLASSES = [NOTE, 'door', 'window', 'whiteboard', 'light switch', 'electrical outlet', 'clock', 'poster', 'fire extinguisher', 'air vent'];
+const CLASSES = [NOTE, 'door', 'window', 'whiteboard', 'light switch', 'electrical outlet', 'clock', 'poster', 'fire extinguisher', 'air vent',
+  'bookshelf','desk','table','sofa','chair','plant','television','monitor','refrigerator','sink','lamp','picture','backpack'];
 function validBox(box) {
   return Array.isArray(box) && box.length === 4 && box.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)
     && box[2] > 0 && box[3] > 0 && box[0] + box[2] <= 1.000001 && box[1] + box[3] <= 1.000001;
 }
 
 function validateYoloResult(result, videos) {
-  requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === 2,
+  requireAction(result?.model === MODEL && Array.isArray(result.passes) && result.passes.length === videos.length,
     'YOLOE_INVALID_RESPONSE', 'YOLOE returned an invalid result.');
   const seen = new Set();
   const passes = result.passes.map((pass) => {
@@ -30,6 +31,9 @@ function validateYoloResult(result, videos) {
         && validBox(box),
       'YOLOE_INVALID_RESPONSE', 'YOLOE returned invalid labels, timestamps or boxes.');
       const safe = { label: item.label, t: item.t, box, confidence: item.confidence, frameIndex: item.frameIndex };
+      requireAction(item.observationCount === undefined || (Number.isInteger(item.observationCount)
+        && item.observationCount >= 1 && item.observationCount <= 120), 'YOLOE_INVALID_RESPONSE', 'Invalid observation count.');
+      safe.observationCount = item.observationCount ?? 1;
       requireAction(Array.isArray(item.context) && item.context.length <= 6, 'YOLOE_INVALID_RESPONSE', 'Missing or oversized same-frame wall context.');
       safe.context = item.context.map((element) => {
         requireAction(CLASSES.includes(element?.label) && element.label !== NOTE && validBox(element.box)
@@ -57,7 +61,7 @@ function validateYoloResult(result, videos) {
       timestampSource: pass.timestampSource === 'decoder presentation time' ? pass.timestampSource : 'frame-index/fps fallback' };
   });
   return { model: MODEL, passes, analysis: { engine: 'yoloe', device: 'cpu', fps: 1, confidenceThreshold: 0.35,
-    classes: CLASSES, maxObjectsPerPass: 8, maxCandidatesPerClass: 8, imageSize: 960, candidateLabel: NOTE,
+    classes: CLASSES.slice(0,10), maxObjectsPerPass: 8, maxCandidatesPerClass: 8, imageSize: 960, candidateLabel: NOTE,
     contextMetric: 'same-frame box gap / image diagonal; not meters',
     deduplication: 'short image-space overlap tracks; not persistent world identities' },
     primaryDetector: 'yoloe',
@@ -129,4 +133,4 @@ function createYoloDetector({ pythonPath = process.env.YOLOE_PYTHON || path.join
     } };
 }
 
-module.exports = { createYoloDetector, validateYoloResult, MODEL, CLASSES, NOTE };
+module.exports = { createYoloDetector, validateYoloResult, MODEL, CLASSES, NOTE, validBox };
