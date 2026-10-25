@@ -8,12 +8,14 @@ const { handleMap } = require('./maps');
 const { createGeminiClient } = require('./gemini');
 const { LiveScan } = require('./liveScan');
 const { createVideoTestHandler } = require('./videoLab');
+const { createScanHandler } = require('./scans');
 
 function createAppServer(options = {}) {
   const rooms = new RoomManager(options);
   const suggest = options.suggest || createGeminiClient();
   const startedAt = Date.now();
   const videoTest = createVideoTestHandler(options);
+  const scan = createScanHandler(rooms,options);
   const dashboardAssets = new Map([
     ['/dashboard', ['index.html', 'text/html; charset=utf-8']],
     ['/dashboard/', ['index.html', 'text/html; charset=utf-8']],
@@ -41,6 +43,8 @@ function createAppServer(options = {}) {
       return;
     }
     const mapRoute = /^\/map\/([A-Z]{4})$/.exec(route);
+    const scanRoute = /^\/scan\/([A-Z]{4})\/(perimeter|sweep)$/.exec(route);
+    if (scanRoute) { void scan(request,response,scanRoute[1],scanRoute[2]); return; }
     if (mapRoute) {
       void handleMap(request, response, rooms, mapRoute[1], options.maxMapBytes);
       return;
@@ -219,6 +223,7 @@ function createAppServer(options = {}) {
       });
     },
     close() {
+      scan.close();
       for (const room of rooms.rooms.values()) room.game.dispose();
       for (const room of rooms.rooms.values()) room.liveScan?.stop('server_stopped');
       for (const socket of sockets.clients) socket.terminate();

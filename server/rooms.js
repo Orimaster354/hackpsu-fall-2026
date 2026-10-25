@@ -30,6 +30,8 @@ class Room {
     this.players = new Map();
     this.grid = null;
     this.setupConfirmed = false;
+    this.scanBusy = false;
+    this.scanGeometry = null;
     this.stations = [];
     this.hasMap = false;
     this.phase = 'lobby';

@@ -35,6 +35,8 @@ Both steps run in one world-tracking session, so every pose shares one frame (or
 
 ### Upload formats
 All JSON, host only, lobby phase only, rejected after `confirmSetup`. Errors: HTTP status plus `{t:"error",code,message}`.
+
+Backend status: both routes, perimeter/grid/emergency generation, sweep frame inference, reference note geometry, Gemini ordering and score fallback are implemented. `SCAN_BUSY` (409) rejects a concurrent scan in that room and setup edits/confirmation/start during processing. JPEGs over 600 KiB decoded return `SCAN_UPLOAD_TOO_LARGE` (413); detector/runtime failure returns `SCAN_FAILED` (422). Gemini failure is a warning on successful score-based setup. The six-note synthetic fixture and black-box HTTP/WebSocket checker pass; real ARKit capture acceptance remains pending. Recorded-video diagnostics do not replace this acceptance.
 ```
 POST /scan/:room/perimeter          header X-Player-Id: <host id>      body <= 2 MiB
 { "poses": [ { "t": 0.0, "x": 0, "y": 1.4, "z": 0, "qx": 0, "qy": 0, "qz": 0, "qw": 1 }, ... ] }   // 100 to 3000 samples
