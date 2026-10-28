@@ -388,7 +388,14 @@ struct OrbHuntTaskView: View {
 
 struct SignalTaskView: View {
     let context: TaskContext
-    @State private var model = SignalModel()
+    @State private var model: SignalModel
+
+    /// `count` is how many signals to find: two for the task, one for the jammer repair.
+    init(context: TaskContext, count: Int = SignalModel.count) {
+        self.context = context
+        _model = State(initialValue: SignalModel(targets: HuntBearing.randomTargets(
+            count: count, minTurn: SignalModel.minTurn, maxTurn: SignalModel.maxTurn)))
+    }
 
     /// Whole steps of signal strength, so a haptic ticks when it gets stronger or weaker by a step.
     private var steps: Int { Int(model.strength * 8) }
@@ -406,7 +413,7 @@ struct SignalTaskView: View {
                     Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.system(size: 36 + 24 * model.strength))
                         .foregroundStyle(tint)
-                    Text("\(min(model.index + 1, SignalModel.count)) / \(SignalModel.count)")
+                    Text("\(min(model.index + 1, model.targets.count)) / \(model.targets.count)")
                         .font(.system(.title3, design: .rounded, weight: .bold))
                         .monospacedDigit()
                         .offset(y: 100)

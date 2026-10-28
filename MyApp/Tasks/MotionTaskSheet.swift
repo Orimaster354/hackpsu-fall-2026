@@ -9,6 +9,9 @@ import SwiftUI
 /// waits for the player to be back on the tile instead of reporting from the wrong place.
 struct MotionTaskSheet: View {
     let station: MapStation
+    /// nil for a normal task. A sabotage repair plays one of the same tasks at the fix station: the jammer is
+    /// retuned by finding a signal, a meltdown is stabilized by holding steady while a partner does the same.
+    var repair: SabotageKind? = nil
     let onFinish: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -27,7 +30,18 @@ struct MotionTaskSheet: View {
 
     static let timeLimit: TimeInterval = 15
 
-    private enum Outcome { case running, awaitingTile, success, timedOut, cancelled }
+    private enum Outcome { case running, awaitingTile, awaitingPartner, partnerMissed, success, timedOut, cancelled }
+
+    /// Whether the attempt may go on. A repair lasts as long as its sabotage; a task, as long as tasks are on.
+    private var canAttempt: Bool {
+        guard let repair else { return session.canAttemptTasks }
+        return session.role == .crew && session.isAlive && session.phase == .playing && session.activeSabotage?.kind == repair
+    }
+
+    private var limit: TimeInterval { repair == nil ? Self.timeLimit : 25 }
+    /// How long a finished meltdown repair waits for the partner. The server pairs two repairs within 4 seconds.
+    private static let partnerWait: TimeInterval = 4.5
+    private var title: String { repair?.repairTitle ?? station.name }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -47,10 +61,22 @@ struct MotionTaskSheet: View {
         .overlay { CompletionFlash(trigger: flashes) }
         .preferredColorScheme(.dark)
         // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
-        .task { if session.canAttemptTasks, arView == nil { await camera.start() } }
+        .task { if canAttempt, arView == nil { await camera.start() } }
         .task(id: attempt) { await runClock() }
-        .onChange(of: session.canAttemptTasks) { _, allowed in
-            if !allowed { cancelAttempt() }
+        .onChange(of: canAttempt) { _, allowed in
+            guard !allowed, outcome != .success else { return }
+            // A meltdown ends when the partner finishes too. That is the win, not a cancelled attempt.
+            if outcome == .awaitingPartner, repair == .meltdown, session.activeSabotage == nil, session.phase == .playing {
+                partnerJoined()
+            } else {
+                cancelAttempt()
+            }
+        }
+        .task(id: outcome) {
+            guard outcome == .awaitingPartner else { return }
+            try? await Task.sleep(for: .seconds(Self.partnerWait))
+            guard !Task.isCancelled, outcome == .awaitingPartner else { return }
+            outcome = .partnerMissed
         }
         .onChange(of: playsInAR) { _, inAR in telemetry.requiresAim = inAR && !task.huntsInSpace }
         .onDisappear {
@@ -67,10 +93,19 @@ struct MotionTaskSheet: View {
     // MARK: Pieces
 
     /// Old rooms can still decode Tilt, but play the supported hold-steady task.
-    private var task: TaskKind { station.task == .tilt ? .hold : station.task }
+    private var task: TaskKind {
+        switch repair {
+        case .jammer: .signal
+        case .meltdown: .hold
+        default: station.task == .tilt ? .hold : station.task
+        }
+    }
 
     /// True on the station's tile with the lights on, the same rule `completeTask` applies.
-    private var canFinish: Bool { session.canDoTask(at: station) }
+    private var canFinish: Bool {
+        guard repair != nil else { return session.canDoTask(at: station) }
+        return session.canFixHere && station.kind == .fix && station.id == session.fixStation?.id
+    }
 
     /// The AR session's shared view, whenever ARKit owns the camera (even while it is still finding its place, or
     /// when the player chose manual tiles). The task is drawn on that view, never on a second camera.
@@ -88,6 +123,8 @@ struct MotionTaskSheet: View {
 
     /// One line on what the prop shows for this task.
     private var arHint: String {
+        if repair == .jammer { return "Sweep the room. The glow grows as you face the clean signal. Hold on it to retune." }
+        if repair == .meltdown { return "Hold steady. The core calms while you keep still. Your partner must do the same." }
         switch task {
         case .shake: "Shake the phone. The block in front of you jolts with every hit."
         case .tilt, .hold: "Hold the phone steady. The orb swells while you keep still."
@@ -141,14 +178,22 @@ struct MotionTaskSheet: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            StationIcon(kind: .task, size: 48)
-            Text(station.name)
+            if let repair {
+                Image(systemName: repair.repairSymbol)
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(repair.tint)
+                    .frame(width: 48, height: 48)
+            } else {
+                StationIcon(kind: .task, size: 48)
+            }
+            Text(title)
                 .font(.system(.title2, design: .rounded, weight: .bold))
             Text(instruction)
                 .font(.subheadline)
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center)
             if outcome == .running, !canFinish { offTileNotice }
+            if repair == .meltdown, let endsAt = session.activeSabotage?.endsAt { MeltdownCountdown(endsAt: endsAt) }
             clock
         }
     }
@@ -201,7 +246,7 @@ struct MotionTaskSheet: View {
                 case .gesture: PatternTaskView(context: context)
                 case .hammer: HammerTaskView(context: context)
                 case .orbs: OrbHuntTaskView(context: context)
-                case .signal: SignalTaskView(context: context)
+                case .signal: SignalTaskView(context: context, count: repair == nil ? SignalModel.count : 1)
                 }
             }
             .id(attempt)
@@ -224,7 +269,7 @@ struct MotionTaskSheet: View {
             case .success:
                 ZStack {
                     CompletionBurst(size: 230).offset(y: -34)
-                    Text("TASK COMPLETE")
+                    Text(repair?.restoredTitle ?? "TASK COMPLETE")
                         .font(.system(.title3, design: .rounded, weight: .heavy))
                         .tracking(2.5)
                         .foregroundStyle(.white)
@@ -232,6 +277,23 @@ struct MotionTaskSheet: View {
                         .popOnAppear(delay: 0.15)
                         .offset(y: 112)
                 }
+            case .awaitingPartner:
+                VStack(spacing: 6) {
+                    Label("Core stabilized. Waiting for a partner…", systemImage: "person.2.fill")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                        .foregroundStyle(Theme.Palette.warning)
+                    Text("Another crew member must stabilize it too, within a few seconds.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                .multilineTextAlignment(.center)
+                .padding()
+            case .partnerMissed:
+                Label("No partner in time. Try again together.", systemImage: "person.2.slash.fill")
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+                    .foregroundStyle(Theme.Palette.danger)
+                    .multilineTextAlignment(.center)
+                    .padding()
             case .timedOut:
                 Label("Time's up", systemImage: "clock.badge.exclamationmark.fill")
                     .font(.system(.title3, design: .rounded, weight: .bold))
@@ -274,7 +336,7 @@ struct MotionTaskSheet: View {
 
     @ViewBuilder private var footer: some View {
         VStack(spacing: 10) {
-            if outcome == .timedOut {
+            if outcome == .timedOut || outcome == .partnerMissed {
                 Button("Try again") { attempt += 1 }
                     .buttonStyle(.game(.primary))
             }
@@ -294,6 +356,12 @@ struct MotionTaskSheet: View {
     // MARK: Flow
 
     private var instruction: String {
+        if repair == .jammer {
+            return "The comms jammer is scrambling the station. Sweep the phone around the room to find the clean signal, then hold on it to retune."
+        }
+        if repair == .meltdown {
+            return "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds to calm the core. A partner has to do the same within a few seconds of you."
+        }
         switch task {
         case .shake: "Shake the phone hard \(ShakeModel.needed) times."
         case .tilt, .hold: "Hold the phone upright and keep it steady for \(Int(SteadyModel.holdSeconds)) seconds."
@@ -313,16 +381,16 @@ struct MotionTaskSheet: View {
     }
 
     private func runClock() async {
-        guard session.canAttemptTasks else { cancelAttempt(); return }
+        guard canAttempt else { cancelAttempt(); return }
         progress = 0
         telemetry.reset()
         telemetry.requiresAim = playsInAR && !task.huntsInSpace
         outcome = .running
-        deadline = .now.addingTimeInterval(Self.timeLimit)
+        deadline = .now.addingTimeInterval(limit)
         sensor.start()
-        try? await Task.sleep(for: .seconds(Self.timeLimit))
+        try? await Task.sleep(for: .seconds(limit))
         guard !Task.isCancelled, outcome == .running else { return }
-        guard session.canAttemptTasks else { cancelAttempt(); return }
+        guard canAttempt else { cancelAttempt(); return }
         sensor.stop()
         telemetry.state = .timedOut
         outcome = .timedOut
@@ -330,16 +398,40 @@ struct MotionTaskSheet: View {
     }
 
     private func succeed() {
-        guard outcome == .running, session.canAttemptTasks else { return }
+        guard outcome == .running, canAttempt else { return }
         sensor.stop()
         telemetry.progress = 1
         progress = 1
         if canFinish { finish() } else { outcome = .awaitingTile }
     }
 
+    /// A meltdown needs a second crew member to finish within a few seconds of the first. This phone has done its
+    /// part and has sent its repair; it now waits to see whether the sabotage clears.
+    private func holdForPartner() {
+        outcome = .awaitingPartner
+        telemetry.progress = 1
+        progress = 1
+        onFinish()
+    }
+
+    private func partnerJoined() {
+        outcome = .success
+        audio?.play(.taskComplete)
+        flashes += 1
+        telemetry.state = .success
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            dismiss()
+        }
+    }
+
     private func finish() {
-        guard session.canAttemptTasks, canFinish,
+        guard canAttempt, canFinish,
               outcome == .running || outcome == .awaitingTile else { return }
+        if repair == .meltdown {
+            holdForPartner()
+            return
+        }
         outcome = .success
         audio?.play(.taskComplete)
         flashes += 1

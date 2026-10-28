@@ -45,6 +45,31 @@ extension SabotageKind {
         }
     }
 
+    /// The AR repair the crew plays at the fix station.
+    var repairTitle: String {
+        switch self {
+        case .lights: "Restore the power"
+        case .jammer: "Retune the antenna"
+        case .meltdown: "Stabilize the core"
+        }
+    }
+
+    var repairSymbol: String {
+        switch self {
+        case .lights: "bolt.fill"
+        case .jammer: "antenna.radiowaves.left.and.right"
+        case .meltdown: "atom"
+        }
+    }
+
+    var restoredTitle: String {
+        switch self {
+        case .lights: "POWER RESTORED"
+        case .jammer: "COMMS RESTORED"
+        case .meltdown: "MELTDOWN STOPPED"
+        }
+    }
+
     /// What the impostors get out of it, shown on their button.
     var impostorHint: String {
         switch self {
@@ -132,7 +157,14 @@ struct SabotageBanner: View {
         }
     }
 
-    private func countdown(_ endsAt: Int) -> some View {
+    private func countdown(_ endsAt: Int) -> some View { MeltdownCountdown(endsAt: endsAt) }
+}
+
+/// Minutes and seconds left before a meltdown ends the game. Turns red in the last 15 seconds.
+struct MeltdownCountdown: View {
+    let endsAt: Int
+
+    var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { context in
             let left = max(0, Date(timeIntervalSince1970: Double(endsAt) / 1000).timeIntervalSince(context.date))
             Text(String(format: "%d:%02d", Int(left) / 60, Int(left) % 60))

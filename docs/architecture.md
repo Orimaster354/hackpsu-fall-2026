@@ -222,6 +222,12 @@ After relocalizing, each phone shows world-anchored icons at tile centers, visib
 - An "EMERGENCY" text icon on the emergency tile.
 - Ghosts and dead players see no task icons.
 - Icons are hidden until relocalization succeeds. In manual mode the same icons appear on the 2D map only.
+Each sabotage has its own AR look and its own AR repair, played at the fix station (the app opens it when the crew member steps on the fix tile):
+- **Lights out:** a dark vignette and a wrench marking the fix tile. Repair: trace a symbol with the phone's aim ("Restart the power").
+- **Comms jammer:** the camera card fills with static and scan lines, and an antenna marker stands on the fix tile. Repair, "Retune the antenna": sweep the room to find the hidden signal (the glow grows as you face it) and hold on it.
+- **Meltdown:** a red alarm glow, a countdown, and a pulsing red core on the fix tile. Repair, "Stabilize the core": hold the phone upright and steady for 5 s, which sends `fix`. A second crew member must do the same within 4 s; the sheet waits 4.5 s for the partner and then offers another try.
+The repairs reuse the Signal Hunt and hold-steady motion rules (`MotionTaskSheet` with a `repair` kind), so they need no new messages. Without AR tracking the old hold-to-fix button is used.
+
 The icon positions come straight from `Station.tile` and `Grid`; the app only converts tile to world position (`originX + (x + 0.5)`, `originZ + (y + 0.5)`).
 
 ## Failure handling

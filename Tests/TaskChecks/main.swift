@@ -298,6 +298,14 @@ do {
     }
     check(!brushing.isComplete && brushing.index == 0, "sweeping through the signal without stopping does not lock it")
     check(SignalModel.dwell >= 0.8 && OrbHuntModel.dwell >= 0.4, "locking takes a deliberate hold")
+
+    // The jammer repair is a signal hunt with one signal.
+    var single = signal([bearing(120, 5)])
+    for _ in 0 ..< 60 * 2 { single.step(facing(yaw: startHeading + 120, pitch: 5)) }
+    check(single.isComplete && single.targets.count == 1, "one signal locked finishes a single-signal hunt")
+    var singleIdle = signal([bearing(120, 5)])
+    for _ in 0 ..< 60 * 30 { singleIdle.step(facing(yaw: startHeading)) }
+    check(!singleIdle.isComplete, "an idle phone never finishes a single-signal hunt")
 }
 
 print(failures == 0 ? "OK: \(checks) task checks passed" : "FAILED: \(failures) of \(checks) task checks")

@@ -11,6 +11,8 @@ struct GameView: View {
     @State private var taskStation: MapStation?
     @State private var taskCameraInUse = false
     @State private var fixTraceOpen = false
+    /// Which sabotage the open repair panel is for, fixed when it opens so it cannot change under the player.
+    @State private var fixKind = SabotageKind.lights
     /// Closing the power panel snoozes it until the player leaves the fix tile or the lights change.
     @State private var fixTraceSnoozed = false
     /// The station whose task was just closed. It does not reopen until the player leaves its tile.
@@ -100,7 +102,11 @@ struct GameView: View {
             openTaskOnArrival()
         }) {
             if let fix = session.fixStation {
-                FixTraceSheet(station: fix) { session.fix(fix) }
+                if fixKind == .lights {
+                    FixTraceSheet(station: fix) { session.fix(fix) }
+                } else {
+                    MotionTaskSheet(station: fix, repair: fixKind) { session.fix(fix) }
+                }
             }
         }
         .onChange(of: session.canAttemptTasks) { _, allowed in
@@ -155,6 +161,7 @@ struct GameView: View {
         guard session.canFixHere, session.fixStation != nil, !fixTraceOpen,
               taskStation == nil, !taskCameraInUse, !showPosition else { return }
         fixTraceSnoozed = true
+        fixKind = session.activeSabotage?.kind ?? .lights
         // Remove LightsOutARView before the sheet takes the shared camera view.
         taskCameraInUse = true
         fixTraceOpen = true
@@ -208,6 +215,14 @@ struct GameView: View {
                    let provider = position.ar as? ARPositionProvider, provider.isSessionRunning {
                     LightsOutARView(arView: provider.arView, grid: grid, fix: session.fixStation,
                                     tracking: position.status == .tracking)
+                        .frame(height: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                }
+                if let sabotage = session.activeSabotage, sabotage.kind != .lights, session.role == .crew, session.isAlive,
+                   taskStation == nil, !taskCameraInUse, position.mode == .ar,
+                   let provider = position.ar as? ARPositionProvider, provider.isSessionRunning {
+                    SabotageARView(arView: provider.arView, grid: grid, fix: session.fixStation, sabotage: sabotage,
+                                   tracking: position.status == .tracking)
                         .frame(height: 300)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
@@ -330,7 +345,8 @@ struct GameView: View {
         if session.canFixHere, let fix = session.fixStation {
             if canFixInAR {
                 Button { openFixTrace() } label: {
-                    Label("Restore power", systemImage: "bolt.fill")
+                    let kind = session.activeSabotage?.kind ?? .lights
+                    Label(kind.repairTitle, systemImage: kind.repairSymbol)
                 }
                 .buttonStyle(.game(.primary))
                 .accessibilityIdentifier("restorePowerButton")
