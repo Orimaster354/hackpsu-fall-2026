@@ -50,4 +50,4 @@ Status: interview complete, pending user approval. No code or docs written yet.
 6. Demo rehearsal.
 
 ## Deliverables after approval
-README.md, AGENTS.md, CLAUDE.md, docs/architecture.md, docs/tasks.md.
+README.md, AGENTS.md, docs/architecture.md, docs/tasks.md.

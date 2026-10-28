@@ -28,4 +28,4 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 ## Docs
 - `docs/architecture.md`: modules, models, protocol.
 - `docs/tasks.md`: ordered checklist with owners.
-- `AGENTS.md`, `CLAUDE.md`: rules for coding agents.
+- `AGENTS.md`: rules for coding agents.
