@@ -66,8 +66,11 @@ final class LiveConnection {
             case let .player(id): return .vote(target: id)
             case .skip: return .vote(target: MeetingState.skip)
             }
-        case .sabotage: return .sabotage
+        case let .sabotage(kind): return .sabotage(kind: kind)
         case let .fix(stationID): return .fix(stationId: stationID)
+        case let .ability(targetID): return .ability(targetId: targetID)
+        case let .setDoors(doors): return .setDoors(doors)
+        case let .removeZone(zone): return .removeZone(zone)
         }
     }
 
@@ -82,6 +85,7 @@ final class LiveConnection {
         case let .lobby(snapshot):
             var events: [ServerEvent] = []
             if let hostId = snapshot.hostId { events.append(.host(id: hostId)) }
+            events.append(.zones(snapshot.zones))
             events.append(.lobby(players: snapshot.players.map { PlayerInfo($0) },
                                  grid: snapshot.grid.map { MapGrid($0) },
                                  stations: snapshot.stations.map { MapStation($0) },
@@ -90,13 +94,19 @@ final class LiveConnection {
             return events
         case let .processing(step):
             return SetupStep(rawValue: step).map { [.processing($0)] } ?? []
-        case let .setup(grid, stations, confirmed):
+        case let .setup(grid, stations, zones, confirmed):
             return [
+                .zones(zones),
                 .setup(grid: MapGrid(grid), stations: stations.map { MapStation($0) }),
                 .setupStatus(confirmed: confirmed),
             ]
-        case let .role(role):
-            return role.map { [.role(PlayerRole(rawValue: $0.rawValue) ?? .crew)] } ?? []
+        case let .role(role, power, partners):
+            guard let role else { return [] }
+            return [.role(PlayerRole(rawValue: role.rawValue) ?? .crew), .power(power, partners: partners)]
+        case let .scout(ping):
+            return [.scout(ping)]
+        case .revived:
+            return [.revived]
         case let .state(state):
             return [.state(GameSnapshot(state))]
         case .killed:
@@ -167,6 +177,7 @@ extension GameSnapshot {
                   players: state.players.map { PlayerInfo($0) },
                   tasksDone: state.tasksDone, tasksTotal: state.tasksTotal, lightsOut: state.lightsOut,
                   killCooldownEndsAt: state.killCooldownEndsAt.map(date(fromMillis:)),
-                  meeting: state.meeting.map { MeetingInfo($0) })
+                  meeting: state.meeting.map { MeetingInfo($0) },
+                  sabotage: state.sabotage)
     }
 }

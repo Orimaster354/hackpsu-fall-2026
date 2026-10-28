@@ -132,3 +132,12 @@ The source comments in `MyApp/UI/Session/SessionModels.swift` describe the older
   - **Buttons:** deep-navy glass faces with a bright rim and a glowing base plate (`SlabSurface`), crimson for emergency.
   - **Effects:** task complete (burst, screen flash, progress bar shimmer with a "+1", the station's "?" turning into a check), lights out (flicker, dim, red edge pulse) and lights restored (cyan scan line, chip), a stinger when a meeting starts, a slash across the kill pad, sparks behind the end banner. The existing death flash is unchanged.
   - Files touched that others also edit: `RootView.swift`, `GameView.swift`, `MotionTaskSheet.swift`, `Theme.swift`. The changes are small and additive.
+
+## 10 players, more rooms, powers and sabotages (new-features branch)
+- Server (done, 123 tests pass): 4 to 10 players with 1 or 2 impostors; Medic and Scout powers; lights, jammer and meltdown sabotages; Orb Hunt and Signal Hunt task types; at most 5 task stations; up to six scanned rooms (zones) with doors, per-room maps and a combined tile space. Protocol in `docs/architecture.md`.
+- App (written on Windows, **not compiled or run**): wire models, session logic, role reveal with power and partners, sabotage and ability controls, scout pings and room labels on the map, ten player colors, Orb Hunt and Signal Hunt (2D finder plus AR beacon), a room picker and name in the scan screen with "Scan another room", a doors editor, and per-room map loading with switching at doors.
+- [ ] Mac: run `Tests/ModelsRoundTrip`, `Tests/GameplayChecks`, `Tests/TaskChecks` and `Tests/ARScanChecks`; build in Xcode and fix whatever the compiler finds.
+- [ ] Phones: Orb Hunt and Signal Hunt in AR and in the 2D fallback. The camera heading comes from Core Motion (`MotionSensor.lookDirection`) and the AR beacon is placed from the ARKit camera, so check that the beacon sits where the 2D finder says.
+- [ ] Phones, two rooms: scan a second room, mark a door, start a game; walk through the door and confirm the phone loads the other room's map and keeps reporting the right shared tile. Check that a phone that starts in the second room finds its place.
+- [ ] Ten phones: lobby, role reveal (two impostors see each other), scout ping, revive, jammer (no report or emergency, scrambled map), meltdown (two crew at the fix station).
+- B: the station editor in `SetupReviewView` works on the combined grid; check that moving a station across rooms does what you expect.

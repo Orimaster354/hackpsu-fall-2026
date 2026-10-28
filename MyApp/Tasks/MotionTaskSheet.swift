@@ -43,6 +43,7 @@ struct MotionTaskSheet: View {
         .gameColumn()
         .frame(maxHeight: .infinity, alignment: .top)
         .background { backdrop.ignoresSafeArea() }
+        .overlay { huntCrosshair }
         .overlay { CompletionFlash(trigger: flashes) }
         .preferredColorScheme(.dark)
         // Never open a second camera while ARKit owns it: that interrupts AR and loses the player's place.
@@ -51,7 +52,7 @@ struct MotionTaskSheet: View {
         .onChange(of: session.canAttemptTasks) { _, allowed in
             if !allowed { cancelAttempt() }
         }
-        .onChange(of: playsInAR) { _, inAR in telemetry.requiresAim = inAR }
+        .onChange(of: playsInAR) { _, inAR in telemetry.requiresAim = inAR && !task.huntsInSpace }
         .onDisappear {
             sensor.stop()
             camera.stop()
@@ -93,6 +94,21 @@ struct MotionTaskSheet: View {
         case .dial: "Turn the phone. The knob in front of you turns with it."
         case .gesture: "Tilt the pattern. The ball on the tray follows your phone."
         case .hammer: "Swing the phone down. The hammer drives the nail into the wood."
+        case .orbs: "Turn around the room. Put the crosshair on each glowing orb and hold."
+        case .signal: "Sweep the room slowly. The glow grows as you face the signal. Hold on it to lock."
+        }
+    }
+
+    /// In AR the hunt tasks are aimed with the middle of the screen, so it is marked.
+    @ViewBuilder private var huntCrosshair: some View {
+        if playsInAR, task.huntsInSpace, outcome == .running {
+            TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                Image(systemName: "scope")
+                    .font(.system(size: 54, weight: .light))
+                    .foregroundStyle(telemetry.good ? Theme.Palette.success : Theme.Palette.textPrimary.opacity(0.8))
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 
@@ -184,6 +200,8 @@ struct MotionTaskSheet: View {
                 case .dial: DialTaskView(context: context)
                 case .gesture: PatternTaskView(context: context)
                 case .hammer: HammerTaskView(context: context)
+                case .orbs: OrbHuntTaskView(context: context)
+                case .signal: SignalTaskView(context: context)
                 }
             }
             .id(attempt)
@@ -282,6 +300,8 @@ struct MotionTaskSheet: View {
         case .dial: "Hold the phone upright and turn it like a dial to line the needle up with each marker."
         case .gesture: "Hold the phone flat and tilt it in the pattern shown: lower the edge each arrow points to, then level the phone before the next move."
         case .hammer: "Swing the phone down like a hammer to drive the nail in. \(HammerModel.needed) hard hits."
+        case .orbs: "Stand where you are and turn to find \(OrbHuntModel.count) glowing orbs. Put the crosshair on each one and hold it there."
+        case .signal: "A hidden signal is somewhere in the room. Sweep the phone around: the closer you face it, the stronger it gets. Find \(SignalModel.count) and hold on each to lock."
         }
     }
 
@@ -296,7 +316,7 @@ struct MotionTaskSheet: View {
         guard session.canAttemptTasks else { cancelAttempt(); return }
         progress = 0
         telemetry.reset()
-        telemetry.requiresAim = playsInAR
+        telemetry.requiresAim = playsInAR && !task.huntsInSpace
         outcome = .running
         deadline = .now.addingTimeInterval(Self.timeLimit)
         sensor.start()

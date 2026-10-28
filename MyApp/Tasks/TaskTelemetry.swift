@@ -27,6 +27,16 @@ final class TaskTelemetry {
     var ballY = 0.0
     /// Phone rotation in degrees, clockwise positive, for the dial.
     var dialAngle = 0.0
+    /// The hunt tasks: the current target relative to where the attempt started (radians, yaw counter-clockwise from
+    /// above, pitch up positive), which target it is, how far the hold has got (0 to 1), and for the signal how strong
+    /// it is (0 to 1).
+    var targetYaw = 0.0
+    var targetPitch = 0.0
+    var huntIndex = 0
+    var huntDwell = 0.0
+    var signalStrength = 0.0
+    /// Counts attempts. A hunt measures targets from where the attempt began, so the scene re-anchors on a new one.
+    var attempt = 0
 
     /// Back to the start of an attempt. The 3D scene keeps this same object, so a retry resets
     /// it in place.
@@ -41,5 +51,11 @@ final class TaskTelemetry {
         ballX = 0
         ballY = 0
         dialAngle = 0
+        targetYaw = 0
+        targetPitch = 0
+        huntIndex = 0
+        huntDwell = 0
+        signalStrength = 0
+        attempt += 1
     }
 }

@@ -18,7 +18,10 @@ enum ServerConfig {
         var webSocketURL: URL? { URL(string: "ws://\(authority)/ws") }
         var httpBase: String { "http://\(authority)" }
 
-        func mapURL(room: String) -> URL? { URL(string: "\(httpBase)/map/\(room)") }
+        /// The first room (z1) keeps the plain URL, so a one-room game talks to the server exactly as before.
+        func mapURL(room: String, zone: String = "z1") -> URL? {
+            URL(string: "\(httpBase)/map/\(room)" + (zone == "z1" ? "" : "?zone=\(zone)"))
+        }
 
         private var authority: String { host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)" }
     }

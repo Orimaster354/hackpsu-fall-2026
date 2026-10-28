@@ -12,7 +12,7 @@ WebSocket errors are JSON text: `{"t":"error","code":"HOST_ONLY","message":"Only
 | `CONNECTION_REPLACED` | Stop this displaced client. Do not automatically fight the replacement by reconnecting. |
 | `HOST_ONLY`, `CREW_ONLY`, `IMPOSTOR_ONLY`, `PLAYER_DEAD`, `INVALID_PHASE` | Update controls from authoritative role/life/phase/host state. Never override server decisions locally. |
 | `INVALID_READY` | Send a Boolean `ready` in lobby. |
-| `SETUP_MISSING`, `SETUP_NOT_CONFIRMED`, `SETUP_LOCKED`, `NEED_FOUR_PLAYERS` | Wait for server setup, host confirmation and four connected players. Confirmed setup cannot be edited. |
+| `SETUP_MISSING`, `SETUP_NOT_CONFIRMED`, `SETUP_LOCKED`, `NEED_FOUR_PLAYERS` | Wait for server setup, host confirmation and 4 to 10 connected players (the code keeps its old name). Confirmed setup cannot be edited. |
 | `INVALID_GRID`, `INVALID_STATIONS`, `INVALID_EMERGENCY`, `INVALID_STATION` | Correct setup/station data or move to the valid action station. Grid generation is server-owned. |
 | `STATION_NOT_EDGE`, `STATIONS_TOO_CLOSE`, `STATION_OVERLAP`, `EMERGENCY_LOCKED` | Keep task/fix edits on edge tiles, 2 m apart and off the immutable emergency tile. |
 | `INVALID_TILE` | Send an integer playable tile and source `ar`/`manual`. Two consecutive matching reports are required. |
@@ -20,7 +20,13 @@ WebSocket errors are JSON text: `{"t":"error","code":"HOST_ONLY","message":"Only
 | `EMERGENCY_TILE`, `EMERGENCY_USED` | Move to the configured emergency station; respect per-player/room meeting limits. |
 | `INVALID_VOTE`, `ALREADY_VOTED` | Vote once for a living player ID or `skip` during a meeting. |
 | `TASK_ALREADY_DONE`, `LIGHTS_OUT` | Do not repeat a completed task; fix lights before more tasks. |
-| `LIGHTS_ALREADY_OUT`, `SABOTAGE_COOLDOWN`, `INVALID_FIX` | Respect lights/cooldown state; living crew fixes only at a fix station. |
+| `LIGHTS_ALREADY_OUT`, `SABOTAGE_COOLDOWN`, `INVALID_FIX` | Respect lights/cooldown state; living crew fixes only at the active sabotage's fix station. |
+| `INVALID_SABOTAGE`, `SABOTAGE_ACTIVE`, `NO_FIX_STATION` | The kind must be `lights`, `jammer` or `meltdown`; only one sabotage runs at a time; the jammer and the meltdown need a fix station. |
+| `SABOTAGE_BLOCKS_MEETING` | `report` and `emergency` are refused while the jammer or a meltdown is active. Repair it first. |
+| `NO_ABILITY`, `ABILITY_USED`, `ABILITY_COOLDOWN` | Only the Medic and the Scout have a power: the Medic revives once, the Scout pings twice with a gap. A refused revive with `INVALID_BODY` leaves the Medic their one use. |
+| `INVALID_ZONE`, `TOO_MANY_ZONES`, `ZONES_TOO_LARGE` | Rooms are `z1` to `z6`; at most 6 rooms; the rooms together must fit a 100 by 100 tile layout. |
+| `INVALID_DOORS`, `ZONES_NOT_CONNECTED` | A door joins one edge tile in each of two different rooms; every room must be reachable from the first through doors before `confirmSetup`. |
+| `TOO_MANY_TASKS` | At most 5 task stations in the whole game, across all rooms. |
 
 ## WebSocket closure is separate from JSON errors
 

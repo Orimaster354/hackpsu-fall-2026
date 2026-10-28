@@ -19,6 +19,12 @@ struct RoomMapView: View {
     var showFix = false
     /// Ghosts and dead players see no icons (docs).
     var showStationIcons = true
+    /// Station kinds to leave off the map. The comms jammer hides the tasks and meeting spots from the crew.
+    var hiddenKinds: Set<StationKind> = []
+    /// The Scout's latest ping: tiles with people on them and how many. Drawn as pulsing counts.
+    var pings: [ScoutTile] = []
+    /// Where each scanned room's name is written (the room's first tile). Empty with a single room.
+    var roomLabels: [(name: String, tile: MapTile)] = []
     var editableTiles: Set<MapTile> = []
     var selectedStationID: String?
     /// Testing overlay: where everyone is. Real play never shows this.
@@ -81,6 +87,21 @@ struct RoomMapView: View {
                 shape.strokeBorder(color.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, dash: [4, 3]))
             }
             otherDots(on: tile, size: size)
+            if let ping = pings.first(where: { $0.x == tile.x && $0.y == tile.y }) {
+                shape.strokeBorder(Theme.Palette.neon, lineWidth: 2)
+                Text("\(ping.count)")
+                    .font(.system(size: size * 0.3, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.neon)
+            }
+            if let label = roomLabels.first(where: { $0.tile == tile }) {
+                Text(label.name)
+                    .font(.system(size: max(8, size * 0.14), weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(size * 0.06)
+            }
         }
         .padding(1.5)
         .contentShape(Rectangle())
@@ -112,7 +133,7 @@ struct RoomMapView: View {
     }
 
     private func isShown(_ station: MapStation) -> Bool {
-        guard showStationIcons else { return false }
+        guard showStationIcons, !hiddenKinds.contains(station.kind) else { return false }
         return station.kind != .fix || showFix
     }
 

@@ -55,6 +55,11 @@ struct TaskARBackdrop: UIViewRepresentable {
         private let nail = Entity()
         private let hammerArm = Entity()
         private var lastStrike = 0
+        /// The hunt tasks put one glowing beacon at the current target's bearing, around the player.
+        private let beacon = ModelEntity()
+        private var placedAttempt = -1
+        private var isHunt: Bool { task.huntsInSpace }
+        private static let beaconDistance: Float = 2.0
 
         private var placed = false
         private var outOfViewSince: Date?
@@ -98,6 +103,10 @@ struct TaskARBackdrop: UIViewRepresentable {
         // Local axes: +x is the player's right, +y up, +z toward the player.
 
         private func build() {
+            if isHunt {
+                buildHunt()
+                return
+            }
             let pedestal = ModelEntity(
                 mesh: .generateCylinder(height: 0.6, radius: 0.16),
                 materials: [SimpleMaterial(color: .darkGray, roughness: 0.5, isMetallic: true)]
@@ -129,6 +138,8 @@ struct TaskARBackdrop: UIViewRepresentable {
                 top.addChild(knob)
             case .hold:
                 top.addChild(accented(.generateSphere(radius: 0.1), y: 0.16))
+            case .orbs, .signal:
+                break
             case .hammer:
                 // A block of wood with a nail standing in it, and a hammer beside it. The block top is at y = 0.2.
                 top.addChild(accented(.generateBox(size: [0.3, 0.2, 0.3], cornerRadius: 0.02), y: 0.1))
@@ -155,6 +166,14 @@ struct TaskARBackdrop: UIViewRepresentable {
             prop.addChild(bar)
         }
 
+        /// No pedestal: the scene is just the beacon, moved each frame to the current target.
+        private func buildHunt() {
+            beacon.model = ModelComponent(mesh: .generateSphere(radius: 0.12), materials: [UnlitMaterial(color: Self.idle)])
+            beacon.scale = SIMD3(repeating: 0.001)
+            accent.append(beacon)
+            prop.addChild(beacon)
+        }
+
         private func accented(_ mesh: MeshResource, y: Float) -> ModelEntity {
             let entity = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: Self.idle)])
             entity.position.y = y
@@ -177,6 +196,18 @@ struct TaskARBackdrop: UIViewRepresentable {
             let heading = SIMD3<Float>(look.x, 0, look.z)
             let headingLength = simd_length(heading)
 
+            if isHunt {
+                // The targets are measured from where the player faced when the attempt began, so the beacons are
+                // laid out once per attempt and never follow the player around.
+                telemetry.recenterRequested = false
+                telemetry.aimed = true
+                if placedAttempt != telemetry.attempt, headingLength > 0.3 {
+                    place(camera: camera, heading: heading / headingLength)
+                    placedAttempt = telemetry.attempt
+                }
+                animate()
+                return
+            }
             if telemetry.recenterRequested {
                 telemetry.recenterRequested = false
                 if headingLength > 0.3 { place(camera: camera, heading: heading / headingLength) }
@@ -193,8 +224,9 @@ struct TaskARBackdrop: UIViewRepresentable {
 
         private func place(camera: SIMD3<Float>, heading: SIMD3<Float>) {
             let flat = task == .tilt || task == .gesture
-            var position = camera + heading * (flat ? 0.1 : 1.1)
-            position.y = camera.y - 1.0
+            // A hunt is centred on the player's head. The other tasks stand a prop about a meter below the phone.
+            var position = isHunt ? camera : camera + heading * (flat ? 0.1 : 1.1)
+            if !isHunt { position.y = camera.y - 1.0 }
             // Turns the prop's -z axis to the player's heading, so +x is their right.
             let yaw = atan2(-heading.x, -heading.z)
             anchor.position = position
@@ -265,6 +297,8 @@ struct TaskARBackdrop: UIViewRepresentable {
             case .hold:
                 let swell = 1 + 0.4 * p
                 top.scale = SIMD3(repeating: swell)
+            case .orbs, .signal:
+                animateHunt()
             case .hammer:
                 // The nail sinks with progress; each strike snaps the hammer down and the block shudders.
                 nail.position.y = Self.nailOutY - Self.nailTravel * p
@@ -272,9 +306,24 @@ struct TaskARBackdrop: UIViewRepresentable {
                 top.position.x = Float.random(in: -1 ... 1) * pulse * 0.01
             }
 
-            if telemetry.state == .success {
+            if telemetry.state == .success, !isHunt {
                 top.position.y = 0.6 + 0.05 * sin(Float(Date().timeIntervalSinceReferenceDate) * 6)
             }
+        }
+
+        /// Puts the beacon at the target's bearing, two meters out. An orb is always visible and swells as the
+        /// crosshair holds on it. The signal is only a faint glow that brightens, in size, as the phone points nearer.
+        private func animateHunt() {
+            let yaw = Float(telemetry.targetYaw)
+            let pitch = Float(telemetry.targetPitch)
+            // Local axes: -z is the heading at the start, +x its right. A positive yaw turns left, toward -x.
+            beacon.position = Self.beaconDistance * SIMD3(-sin(yaw) * cos(pitch), sin(pitch), -cos(yaw) * cos(pitch))
+            let t = Float(Date().timeIntervalSinceReferenceDate)
+            let strength = Float(telemetry.signalStrength)
+            let seen: Float = task == .orbs ? 1 : max(0, (strength - 0.35) / 0.65)
+            let swell = (1 + 0.15 * sin(t * 5)) * (1 + 0.8 * Float(telemetry.huntDwell))
+            let gone = telemetry.state == .success
+            beacon.scale = SIMD3(repeating: gone ? 0.001 : max(0.001, seen * swell))
         }
     }
 }

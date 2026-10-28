@@ -15,6 +15,12 @@ struct WaitingRoomView: View {
     private var slotCount: Int { max(GameSession.requiredPlayers, session.players.count) }
     private var isStarting: Bool { session.lobbyStatus == .starting }
 
+    /// 4 to 10 players. One impostor up to six players, two from seven.
+    private var rulesLine: String {
+        let impostors = GameSession.impostorCount(forPlayers: max(session.players.count, GameSession.minPlayers))
+        return "\(GameSession.minPlayers) to \(GameSession.maxPlayers) players · \(impostors) impostor\(impostors == 1 ? "" : "s") at this size"
+    }
+
     var body: some View {
         ScrollScreen(spacing: 24) {
             VStack(spacing: 14) {
@@ -29,6 +35,10 @@ struct WaitingRoomView: View {
                         .foregroundStyle(Theme.Palette.textSecondary)
                         .multilineTextAlignment(.center)
                 }
+                Text(rulesLine)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .multilineTextAlignment(.center)
             }
             .staggeredEntrance(0)
 
@@ -65,11 +75,11 @@ struct WaitingRoomView: View {
                 Text("Players")
                     .font(.system(.headline, design: .rounded, weight: .bold))
                 Spacer()
-                Text("\(session.players.count)/\(slotCount)")
+                Text("\(session.players.count)/\(GameSession.maxPlayers)")
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.Palette.textSecondary)
-                    .accessibilityLabel("\(session.players.count) of \(slotCount) players")
+                    .accessibilityLabel("\(session.players.count) of \(GameSession.maxPlayers) players")
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 4)

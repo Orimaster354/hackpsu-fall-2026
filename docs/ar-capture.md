@@ -86,3 +86,10 @@ Checks: `./Tests/ARScanChecks/run_scan_checks.sh` (Mac) covers the status rules,
 4. Send the app to the background for a minute and return: it recovers, or shows a message with Retry AR.
 5. Manual mode still works, including after a failed AR attempt.
 Record results for each step separately from the Mac checks.
+
+## Scanning more than one room
+Each room is a separate scan: perimeter walk, vantage tile, sweep, world map. The scan screen has a room picker. "A new room" adds the next free room (`z2` to `z6`), "Scan <name> again" replaces one that exists, and an optional name labels it on the map. After a scan, "Scan another room" resets the flow for the next room; the AR camera keeps running. Every upload carries the room id (`zone` in the perimeter and sweep bodies, `?zone=` on the map), and the flow reads the grid of the room it is scanning, not the combined game grid.
+
+Things to do for a second room: stick its notes first, walk into it before starting the perimeter, and stand inside it for the vantage tile and the sweep. Each room's world map is separate. Rooms are joined by doors the host marks in Room setup (one edge tile in each room); players switch maps at a door. A rescan of a room removes its doors, so mark them again.
+
+During play, `ARPositionProvider` loads the map of the room the phone starts in, reports `local tile + room offset`, and loads the next room's map when the phone leaves a room's grid beside a door (or, with no door in reach, after a few seconds, tries the other rooms in turn). This is built but has not run on a phone.

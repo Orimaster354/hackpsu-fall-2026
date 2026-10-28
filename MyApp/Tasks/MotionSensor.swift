@@ -16,6 +16,11 @@ struct MotionSample {
     /// The hand's acceleration along gravity, in g. Positive while the phone is being pushed or swung DOWN, negative
     /// while it is lifted. A hammer stroke is a strong positive spike. Defaults to 0 for samples that do not set it.
     var accelerationAlongGravity: Double = 0
+    /// Which way the back camera faces, in radians, from the gravity-aligned reference frame. Yaw is counter-clockwise
+    /// seen from above and its zero is arbitrary (the hunt tasks only use changes in it). Pitch is up positive from the
+    /// horizon. Both default to 0 for samples that do not set them.
+    var lookYaw: Double = 0
+    var lookPitch: Double = 0
 }
 
 /// Publishes `MotionSample`s at 60 Hz while started. The task rules live in `TaskModels.swift`
@@ -49,6 +54,7 @@ final class MotionSensor {
         lastTimestamp = motion.timestamp
         let a = motion.userAcceleration
         let r = motion.rotationRate
+        let look = Self.lookDirection(of: motion)
         samples.send(MotionSample(
             gravityX: motion.gravity.x,
             gravityY: motion.gravity.y,
@@ -58,7 +64,21 @@ final class MotionSensor {
             dt: dt,
             // CoreMotion's gravity vector points toward the ground in the phone's frame, so this dot product is how hard
             // the hand is accelerating toward the ground.
-            accelerationAlongGravity: a.x * motion.gravity.x + a.y * motion.gravity.y + a.z * motion.gravity.z
+            accelerationAlongGravity: a.x * motion.gravity.x + a.y * motion.gravity.y + a.z * motion.gravity.z,
+            lookYaw: look.yaw,
+            lookPitch: look.pitch
         ))
+    }
+
+    /// The back camera looks along the phone's -z axis. Core Motion's matrix relates the phone frame to the
+    /// gravity-aligned reference frame (z up); which way round is checked against the measured gravity, so the answer
+    /// does not depend on remembering the convention. Whichever reading makes "up" match gravity is the right one.
+    static func lookDirection(of motion: CMDeviceMotion) -> (yaw: Double, pitch: Double) {
+        let m = motion.attitude.rotationMatrix
+        let up = (x: -motion.gravity.x, y: -motion.gravity.y, z: -motion.gravity.z)
+        let byColumns = m.m13 * up.x + m.m23 * up.y + m.m33 * up.z
+        let byRows = m.m31 * up.x + m.m32 * up.y + m.m33 * up.z
+        let look = byColumns >= byRows ? (x: -m.m31, y: -m.m32, z: -m.m33) : (x: -m.m13, y: -m.m23, z: -m.m33)
+        return (atan2(look.y, look.x), asin(max(-1, min(1, look.z))))
     }
 }

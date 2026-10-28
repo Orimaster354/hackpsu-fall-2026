@@ -52,7 +52,7 @@ struct NetDebugView: View {
                 }
 
                 if let lobby = client.lobby {
-                    Section("Lobby (\(lobby.players.count)/4)") {
+                    Section("Lobby (\(lobby.players.count)/\(GameSession.maxPlayers))") {
                         ForEach(lobby.players) { player in
                             HStack {
                                 Text(player.name)
@@ -185,7 +185,7 @@ struct NetDebugView: View {
         switch message {
         case let .joined(id, room): return "joined \(room) as \(id.prefix(8))"
         case let .lobby(snapshot): return "lobby: \(snapshot.players.count) players"
-        case let .role(role): return "role: \(role?.rawValue ?? "none")"
+        case let .role(role, power, _): return "role: \(role?.rawValue ?? "none") power: \(power?.rawValue ?? "none")"
         case let .state(state): return "state: \(state.phase.rawValue)"
         case let .error(code, text): return "error \(code): \(text)"
         default: return String(describing: message).prefix(80).description

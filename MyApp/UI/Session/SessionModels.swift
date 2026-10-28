@@ -80,7 +80,7 @@ struct MapGrid: Equatable {
 
 /// docs: `TaskType`. Raw values are the wire strings.
 enum TaskKind: String, CaseIterable {
-    case shake, tilt, dial, hold, gesture, hammer
+    case shake, tilt, dial, hold, gesture, hammer, orbs, signal
 
     /// Tilt stays readable for older rooms; it is no longer offered or assigned.
     static var availableTasks: [TaskKind] { allCases.filter { $0 != .tilt } }
@@ -135,6 +135,8 @@ struct GameSnapshot: Equatable {
     var lightsOut: Bool
     var killCooldownEndsAt: Date?
     var meeting: MeetingInfo?
+    /// The active sabotage, or nil. `lightsOut` is still true for the lights sabotage.
+    var sabotage: SabotageState? = nil
 }
 
 /// docs: server to client `processing` step.
@@ -167,8 +169,14 @@ enum ClientIntent: Equatable {
     case report(bodyID: String)
     case emergency
     case vote(Vote)
-    case sabotage
+    case sabotage(SabotageKind)
     case fix(stationID: String)
+    /// A crew power. Medic: the body to revive. Scout: no target.
+    case ability(targetID: String?)
+    /// Host, lobby: which doors join which scanned rooms.
+    case setDoors([DoorLink])
+    /// Host, lobby: forget one scanned room.
+    case removeZone(String)
 }
 
 /// Server to client. Case names follow the `t` values in docs/architecture.md.
@@ -183,6 +191,14 @@ enum ServerEvent: Equatable {
     /// The room creator's id from `lobby.hostId`. Without it the session falls back to `players[0]`.
     case host(id: String)
     case role(PlayerRole)
+    /// Sent right after `role`: this player's special power (crew only) and, for impostors, the other impostors.
+    case power(Power?, partners: [String])
+    /// The Scout's private ping.
+    case scout(ScoutPing)
+    /// The Medic brought this player back.
+    case revived
+    /// The scanned rooms, sent with every `lobby` and `setup`.
+    case zones([ZoneInfo])
     case state(GameSnapshot)
     case killed
     case meeting(MeetingInfo)

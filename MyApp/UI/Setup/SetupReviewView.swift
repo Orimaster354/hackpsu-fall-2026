@@ -8,6 +8,8 @@ struct SetupReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedID: String?
     @State private var moving = false
+    @State private var showDoors = false
+    @Environment(\.startRoomScan) private var startScan
 
     private var selected: MapStation? { session.stations.first { $0.id == selectedID } }
 
@@ -37,6 +39,7 @@ struct SetupReviewView: View {
                     MapLegend(showsFix: true)
                 }
 
+                roomsCard
                 if let station = selected { editor(station) }
                 stationList
             } bar: {
@@ -50,6 +53,67 @@ struct SetupReviewView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $showDoors) { DoorEditorView() }
+    }
+
+    // MARK: Rooms
+
+    /// The scanned rooms. A game can span up to six; they join through doors the host marks.
+    private var roomsCard: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Rooms")
+                    .font(.system(.headline, design: .rounded, weight: .bold))
+                Spacer()
+                Text("\(session.zones.count) of \(GameSession.maxRooms)")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            .padding(.horizontal, 4)
+            ForEach(session.zones) { zone in
+                HStack(spacing: 12) {
+                    Image(systemName: zone.hasMap ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(zone.hasMap ? Theme.Palette.success : Theme.Palette.warning)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(zone.name).font(.system(.body, design: .rounded, weight: .semibold)).lineLimit(1)
+                        Text("\(zone.grid.playable.count) tiles · \(zone.doors.count) door\(zone.doors.count == 1 ? "" : "s")\(zone.hasMap ? "" : " · no AR map yet")")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                    Spacer(minLength: 8)
+                    if session.zones.count > 1 {
+                        Button(role: .destructive) { session.removeZone(zone.id) } label: { Image(systemName: "trash") }
+                            .accessibilityLabel("Remove \(zone.name)")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                .background(Theme.Palette.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous))
+            }
+            HStack(spacing: 12) {
+                if let startScan, session.zones.count < GameSession.maxRooms {
+                    Button("Scan another room") {
+                        dismiss()
+                        startScan.run()
+                    }
+                    .buttonStyle(.game(.secondary))
+                    .accessibilityIdentifier("scanAnotherRoomButton")
+                }
+                if session.zones.count > 1 {
+                    Button("Doors") { showDoors = true }
+                        .buttonStyle(.game(.secondary))
+                        .accessibilityIdentifier("doorsButton")
+                }
+            }
+            if session.zones.count > 1, !session.roomsAreConnected {
+                Label("Mark a door between the rooms so players can walk from one to the next.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.Palette.warning)
+            }
+        }
+        .padding(12)
+        .gameCard()
     }
 
     // MARK: Editing
@@ -178,7 +242,7 @@ struct SetupReviewView: View {
                 Text(session.setupStatus == .confirmed ? "Setup confirmed" : "Confirm setup")
             }
             .buttonStyle(.game(.primary))
-            .disabled(session.setupStatus != .needsReview || session.taskStations.isEmpty)
+            .disabled(session.setupStatus != .needsReview || session.taskStations.isEmpty || !session.roomsAreConnected)
             .accessibilityIdentifier("confirmSetupButton")
             if session.taskStations.isEmpty {
                 Text("Add at least one task station.")

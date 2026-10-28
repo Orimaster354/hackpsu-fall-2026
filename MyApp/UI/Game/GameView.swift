@@ -18,6 +18,9 @@ struct GameView: View {
     /// Counts the times the crew brought the lights back while this player was watching.
     @State private var lightRestores = 0
     @State private var showPosition: Bool
+    /// The Scout's ping shows on the map for a few seconds, then fades.
+    @State private var showPing = false
+    @State private var revivedNotice = false
 
     /// `showPositionSheet` is for previews and screenshots.
     init(showPositionSheet: Bool = false) {
@@ -25,13 +28,21 @@ struct GameView: View {
     }
 
     private var inDark: Bool { session.lightsOut && session.role == .crew && session.isAlive }
+    /// The comms jammer scrambles the crew's map: no task or meeting icons, only the repair spot.
+    private var jammedForMe: Bool { session.isJammed && session.role == .crew && session.isAlive }
 
     var body: some View {
         ScrollScreen(top: 8) {
             VStack(spacing: 16) {
                 header.staggeredEntrance(0)
+                if revivedNotice { RevivedBanner().transition(Motion.swap) }
                 if session.isAlive {
                     if inDark { LightsOutBanner().transition(Motion.swap) }
+                    if let sabotage = session.activeSabotage, sabotage.kind != .lights {
+                        SabotageBanner(sabotage: sabotage, fixName: session.fixStation?.name,
+                                       isImpostor: session.role == .impostor)
+                            .transition(Motion.swap)
+                    }
                     mapSection.staggeredEntrance(1)
                 } else {
                     GhostView().staggeredEntrance(1)
@@ -48,6 +59,29 @@ struct GameView: View {
             fixTraceSnoozed = false
             openFixOnArrival()
         }
+        .onChange(of: session.activeSabotage) { _, _ in
+            // A new sabotage (or the end of one) starts a fresh repair: the panel may open again.
+            fixTraceSnoozed = false
+            openFixOnArrival()
+        }
+        .onChange(of: session.scoutPingAt) { _, new in
+            guard new != nil else { return }
+            showPing = true
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                showPing = false
+            }
+        }
+        .onChange(of: session.revivedAt) { _, new in
+            guard new != nil else { return }
+            revivedNotice = true
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                revivedNotice = false
+            }
+        }
+        .sensoryFeedback(.success, trigger: session.revivedAt)
+        .sensoryFeedback(.impact(weight: .medium), trigger: session.scoutPingAt)
         .sensoryFeedback(.success, trigger: lightRestores)
         .sensoryFeedback(.warning, trigger: inDark) { _, now in now }
         .onChange(of: lightRestores) {
@@ -61,7 +95,7 @@ struct GameView: View {
                 .onAppear { taskCameraInUse = true }
         }
         .fullScreenCover(isPresented: $fixTraceOpen, onDismiss: {
-            fixTraceSnoozed = session.onFixTile && session.lightsOut
+            fixTraceSnoozed = session.onFixTile && session.activeSabotage != nil
             taskCameraInUse = false
             openTaskOnArrival()
         }) {
@@ -185,12 +219,15 @@ struct GameView: View {
                     myColorIndex: session.myColorIndex,
                     myInitial: myInitial,
                     completed: session.completedStationIDs,
-                    showFix: session.lightsOut,
+                    showFix: session.activeSabotage != nil,
                     showStationIcons: session.isAlive,
+                    hiddenKinds: jammedForMe ? [.task, .emergency] : [],
+                    pings: showPing ? (session.scoutPing?.tiles ?? []) : [],
+                    roomLabels: session.roomLabels,
                     others: othersOnMap,
                     onTap: tapHandler
                 )
-                MapLegend(showsFix: session.lightsOut)
+                MapLegend(showsFix: session.activeSabotage != nil)
             }
         } else {
             Text("Waiting for the room map…")
@@ -278,15 +315,13 @@ struct GameView: View {
                 .accessibilityIdentifier("emergencyButton")
             }
 
-            if session.role == .crew { crewControls }
+            if session.role == .crew {
+                AbilityControls()
+                crewControls
+            }
 
             if session.role == .impostor {
-                Button { session.sabotage() } label: {
-                    Label("Sabotage: lights out", systemImage: "lightbulb.slash.fill")
-                }
-                .buttonStyle(.game(.secondary))
-                .disabled(session.lightsOut)
-                .accessibilityIdentifier("sabotageButton")
+                SabotageControls(active: session.activeSabotage) { session.sabotage($0) }
             }
         }
     }
@@ -300,7 +335,7 @@ struct GameView: View {
                 .buttonStyle(.game(.primary))
                 .accessibilityIdentifier("restorePowerButton")
             } else {
-                HoldToConfirmButton(title: "Hold to fix the lights", duration: 3.5) {
+                HoldToConfirmButton(title: session.activeSabotage?.kind.fixTitle ?? "Hold to fix", duration: 3.5) {
                     guard session.canFixHere else { return }
                     audio?.play(.taskComplete)
                     session.fix(fix)
@@ -329,7 +364,7 @@ struct GameView: View {
                 .disabled(!session.canDoTaskHere)
                 .accessibilityIdentifier("taskButton")
             }
-        } else if !session.canReportHere && !session.canCallEmergency && !session.lightsOut {
+        } else if !session.canReportHere && !session.canCallEmergency && session.activeSabotage == nil {
             Text("Walk to a ? tile on the map to do a task.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.Palette.textSecondary)

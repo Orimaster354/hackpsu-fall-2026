@@ -88,6 +88,9 @@ protocol PositionProvider: AnyObject {
     /// The precise reason behind `status`.
     var detail: PositionDetail { get }
     func start(on grid: MapGrid)
+    /// The scanned rooms, before `start`. Each has its own ARWorldMap, grid and offset into the game's shared tiles.
+    /// Providers that do not use rooms ignore it.
+    func useZones(_ zones: [ZoneInfo])
     func stop()
     /// A fresh attempt on the grid given to the last `start`: reload the room map, restart relocalization in the
     /// same coordinate frame, and clear any earlier error. Providers with nothing to reload ignore it.
@@ -105,6 +108,7 @@ extension PositionProvider {
     }
 
     func restart() {}
+    func useZones(_ zones: [ZoneInfo]) {}
 }
 
 /// The fallback and testing source: the player taps their tile on the 2D map.
@@ -154,9 +158,10 @@ final class PositionCoordinator {
     /// What AR is doing, whichever source is active. Manual tiles do not hide an AR problem.
     var arDetail: PositionDetail { ar?.detail ?? .idle }
 
-    func begin(grid: MapGrid, report: @escaping (MapTile, TileSource) -> Void) {
+    func begin(grid: MapGrid, zones: [ZoneInfo] = [], report: @escaping (MapTile, TileSource) -> Void) {
         guard loop == nil else { return }
         manual.start(on: grid)
+        ar?.useZones(zones)
         ar?.start(on: grid)
         loop = Task { [weak self] in
             var searchingSince: Date?

@@ -64,8 +64,14 @@ if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),
     check(snapshot.grid?.originX == -2.5 && snapshot.setupConfirmed && snapshot.hasMap, "lobby with confirmed setup")
 } else { print("FAIL lobby with confirmed setup"); failures += 1 }
 
-check(decode(#"{"t":"role","role":"impostor"}"#) == .role(.impostor), "role")
-check(decode(#"{"t":"role"}"#) == .role(nil), "role without value (reconnect)")
+check(decode(#"{"t":"role","role":"impostor"}"#) == .role(.impostor, power: nil, partners: []), "role")
+check(decode(#"{"t":"role"}"#) == .role(nil, power: nil, partners: []), "role without value (reconnect)")
+check(decode(#"{"t":"role","role":"crew","power":"medic","partners":[]}"#) == .role(.crew, power: .medic, partners: []), "role with the medic power")
+check(decode(#"{"t":"role","role":"crew","power":"scout","partners":[]}"#) == .role(.crew, power: .scout, partners: []), "role with the scout power")
+check(decode(#"{"t":"role","role":"impostor","power":null,"partners":["p3"]}"#) == .role(.impostor, power: nil, partners: ["p3"]), "role with a partner impostor")
+check(decode(#"{"t":"scout","tiles":[{"x":1,"y":2,"count":3}],"usesLeft":1,"cooldownEndsAt":1700000040000}"#)
+      == .scout(ScoutPing(tiles: [ScoutTile(x: 1, y: 2, count: 3)], usesLeft: 1, cooldownEndsAt: 1_700_000_040_000)), "scout ping")
+check(decode(#"{"t":"revived"}"#) == .revived, "revived")
 check(decode(#"{"t":"killed"}"#) == .killed, "killed")
 
 if case let .state(state)? = decode(#"{"t":"state","phase":"playing","players":\#(playersJSON),"tasksDone":0,"tasksTotal":8,"lightsOut":false,"killCooldownEndsAt":1700000025000,"meeting":null}"#) {
@@ -110,7 +116,15 @@ check(wire(.kill(targetId: "p3")) == #"{"t":"kill","targetId":"p3"}"#, "kill")
 check(wire(.report(bodyId: "p3")) == #"{"bodyId":"p3","t":"report"}"#, "report")
 check(wire(.emergency) == #"{"t":"emergency"}"#, "emergency")
 check(wire(.vote(target: MeetingState.skip)) == #"{"t":"vote","target":"skip"}"#, "vote skip")
-check(wire(.sabotage) == #"{"t":"sabotage"}"#, "sabotage")
+check(wire(.sabotage(kind: .lights)) == #"{"kind":"lights","t":"sabotage"}"#, "sabotage lights")
+check(wire(.sabotage(kind: .jammer)) == #"{"kind":"jammer","t":"sabotage"}"#, "sabotage jammer")
+check(wire(.sabotage(kind: .meltdown)) == #"{"kind":"meltdown","t":"sabotage"}"#, "sabotage meltdown")
+check(wire(.ability(targetId: "p3")) == #"{"t":"ability","targetId":"p3"}"#, "ability with a target (medic)")
+check(wire(.ability(targetId: nil)) == #"{"t":"ability"}"#, "ability without a target (scout)")
+check(wire(.removeZone("z2")) == #"{"t":"removeZone","zone":"z2"}"#, "removeZone")
+check(wire(.setDoors([DoorLink(a: DoorEnd(zone: "z1", tile: Tile(x: 0, y: 2)), b: DoorEnd(zone: "z2", tile: Tile(x: 4, y: 2)))]))
+      == #"{"doors":[{"a":{"tile":{"x":0,"y":2},"zone":"z1"},"b":{"tile":{"x":4,"y":2},"zone":"z2"}}],"t":"setDoors"}"#, "setDoors")
+check(wire(.setDoors([])) == #"{"doors":[],"t":"setDoors"}"#, "setDoors with no doors")
 check(wire(.fix(stationId: "s9")) == #"{"stationId":"s9","t":"fix"}"#, "fix")
 check(wire(.scanStart) == #"{"t":"scan_start"}"#, "scan_start")
 check(wire(.scanStop) == #"{"t":"scan_stop"}"#, "scan_stop")
@@ -138,12 +152,16 @@ func json<T: Encodable>(_ value: T) -> String { String(data: try! sortedEncoder.
 roundTrip(PoseSample(t: 0.1, pose: scanPose), "PoseSample")
 roundTrip(CameraIntrinsics(fx: 1450, fy: 1450, cx: 960, cy: 540, width: 1920, height: 1080), "CameraIntrinsics")
 check(json(PerimeterUpload(poses: [PoseSample(t: 0.1, pose: scanPose)])) ==
-      #"{"poses":[{"qw":1,"qx":0,"qy":0,"qz":0,"t":0.1,"x":2,"y":1.4,"z":2}]}"#, "perimeter upload body")
+      #"{"poses":[{"qw":1,"qx":0,"qy":0,"qz":0,"t":0.1,"x":2,"y":1.4,"z":2}],"zone":"z1"}"#, "perimeter upload body (first room)")
+check(json(PerimeterUpload(poses: [PoseSample(t: 0.1, pose: scanPose)], zone: "z2", name: "Kitchen")) ==
+      #"{"name":"Kitchen","poses":[{"qw":1,"qx":0,"qy":0,"qz":0,"t":0.1,"x":2,"y":1.4,"z":2}],"zone":"z2"}"#, "perimeter upload body (second room)")
 let frame = SweepFrame(index: 0, t: 0, pose: scanPose, jpegData: Data([0xFF, 0xD8]))
 check(json(frame) == #"{"index":0,"jpeg":"/9g=","pose":{"qw":1,"qx":0,"qy":0,"qz":0,"x":2,"y":1.4,"z":2},"t":0}"#, "sweep frame body")
 check(frame.jpegByteCount >= 2 && frame.jpegByteCount <= 3, "sweep frame size estimate")
 check(json(SweepUpload(vantage: Tile(x: 2, y: 2), intrinsics: CameraIntrinsics(fx: 1, fy: 2, cx: 3, cy: 4, width: 5, height: 6), frames: [])) ==
-      #"{"frames":[],"intrinsics":{"cx":3,"cy":4,"fx":1,"fy":2,"height":6,"width":5},"vantage":{"x":2,"y":2}}"#, "sweep upload body")
+      #"{"frames":[],"intrinsics":{"cx":3,"cy":4,"fx":1,"fy":2,"height":6,"width":5},"vantage":{"x":2,"y":2},"zone":"z1"}"#, "sweep upload body")
+check(json(SweepUpload(vantage: Tile(x: 2, y: 2), intrinsics: CameraIntrinsics(fx: 1, fy: 2, cx: 3, cy: 4, width: 5, height: 6), frames: [], zone: "z3"))
+      .hasSuffix(#""zone":"z3"}"#), "sweep upload body names its room")
 check((try? JSONDecoder().decode(PerimeterResult.self, from: Data(#"{"ok":true,"cols":5,"rows":5,"edgeTiles":16}"#.utf8))) ==
       PerimeterResult(ok: true, cols: 5, rows: 5, edgeTiles: 16), "perimeter result")
 check((try? JSONDecoder().decode(SweepResult.self, from: Data(#"{"ok":true,"notesFound":6,"stations":4,"warnings":[]}"#.utf8))) ==
@@ -152,6 +170,34 @@ if let data = try? Data(contentsOf: URL(fileURLWithPath: "docs/fixtures/poses.js
     let samples = try? JSONDecoder().decode([PoseSample].self, from: data)
     check(samples?.count == 201 && samples?.first?.t == 0, "docs/fixtures/poses.json decodes as perimeter samples")
 }
+
+// MARK: Rooms (zones)
+
+let zoneJSON = #"{"id":"z2","name":"Kitchen","offset":{"x":7,"y":0},"grid":\#(gridJSON),"hasMap":true,"doors":[{"tile":{"x":0,"y":0},"toZone":"z1","toTile":{"x":4,"y":0}}]}"#
+if case let .setup(grid, stations, zones, confirmed)? = decode(#"{"t":"setup","grid":\#(gridJSON),"stations":[],"zones":[\#(zoneJSON)],"setupConfirmed":false}"#) {
+    check(grid.cols == 5 && stations.isEmpty && !confirmed, "setup with rooms keeps its grid")
+    check(zones.count == 1 && zones[0].id == "z2" && zones[0].name == "Kitchen" && zones[0].offset == Tile(x: 7, y: 0) && zones[0].hasMap,
+          "setup rooms decode")
+    check(zones[0].doors == [DoorInfo(tile: Tile(x: 0, y: 0), toZone: "z1", toTile: Tile(x: 4, y: 0))], "room doors decode")
+} else { print("FAIL setup with rooms"); failures += 1 }
+if case let .setup(_, _, zones, _)? = decode(#"{"t":"setup","grid":\#(gridJSON),"stations":[],"setupConfirmed":false}"#) {
+    check(zones.isEmpty, "setup without rooms (older server) has none")
+} else { print("FAIL setup without rooms"); failures += 1 }
+if case let .lobby(snapshot)? = decode(#"{"t":"lobby","players":\#(playersJSON),"grid":null,"stations":[],"zones":[\#(zoneJSON)],"hasMap":true,"setupConfirmed":false}"#) {
+    check(snapshot.zones.count == 1 && snapshot.zones[0].id == "z2", "lobby carries the rooms")
+} else { print("FAIL lobby with rooms"); failures += 1 }
+roundTrip(ZoneInfo(id: "z1", name: "Room 1", offset: Tile(x: 0, y: 0), grid: sampleGrid, hasMap: false, doors: []), "ZoneInfo")
+roundTrip(DoorLink(a: DoorEnd(zone: "z1", tile: tile), b: DoorEnd(zone: "z2", tile: tile)), "DoorLink")
+roundTrip(ScoutPing(tiles: [ScoutTile(x: 1, y: 1, count: 2)], usesLeft: 2, cooldownEndsAt: 5), "ScoutPing")
+
+// MARK: Sabotage state in the game state
+
+if case let .state(state)? = decode(#"{"t":"state","phase":"playing","players":[],"tasksDone":0,"tasksTotal":5,"lightsOut":false,"killCooldownEndsAt":null,"meeting":null,"sabotage":{"kind":"meltdown","endsAt":1700000060000,"fixStationId":"fix","holders":1}}"#) {
+    check(state.sabotage?.kind == .meltdown && state.sabotage?.holders == 1 && state.sabotage?.fixStationId == "fix", "state with a meltdown")
+} else { print("FAIL state with a sabotage"); failures += 1 }
+if case let .state(state)? = decode(#"{"t":"state","phase":"playing","players":[],"tasksDone":0,"tasksTotal":5,"lightsOut":false,"killCooldownEndsAt":null,"meeting":null}"#) {
+    check(state.sabotage == nil, "state without a sabotage (older server)")
+} else { print("FAIL state without a sabotage"); failures += 1 }
 
 // MARK: Shared fixture
 
@@ -166,7 +212,7 @@ func fixture(_ path: String) -> ServerMessage? {
 }
 
 for path in ["docs/fixtures/setup.json", "server/fixtures/manual-setup.json"] {
-    if case let .setup(grid, stations, confirmed)? = fixture(path) {
+    if case let .setup(grid, stations, _, confirmed)? = fixture(path) {
         let edge = Set(grid.edge)
         check(grid.cols == 5 && grid.rows == 5 && edge.count == 16 && !confirmed, "\(path) grid")
         check(stations.filter { $0.kind == .task || $0.kind == .fix }.allSatisfy { edge.contains($0.tile) }, "\(path) task and fix stations are on edge tiles")

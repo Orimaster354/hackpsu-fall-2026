@@ -51,7 +51,7 @@ enum MockBots {
                 return [.kill(targetID: victim.info.id)]
             }
             if !game.lightsOut, game.sabotageReadyAt.map({ $0 <= now }) ?? true, roll(0.01, tick, &rng) {
-                return [.sabotage]
+                return [.sabotage(.lights)]
             }
         }
 

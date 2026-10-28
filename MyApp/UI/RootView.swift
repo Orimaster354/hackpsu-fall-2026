@@ -148,6 +148,8 @@ struct RootView: View {
         case .roleReveal:
             RoleRevealView(
                 role: session.role ?? .crew,
+                power: session.power,
+                partners: session.partnerPlayers.map(\.name),
                 startsRevealed: preview.roleRevealed,
                 onContinue: session.acknowledgeRole
             )
@@ -167,7 +169,7 @@ struct RootView: View {
     private func syncWithStage() {
         switch session.stage {
         case .roleReveal, .playing, .meeting, .result:
-            if let grid = session.grid { position.begin(grid: grid, report: session.reportTile) }
+            if let grid = session.grid { position.begin(grid: grid, zones: session.zones, report: session.reportTile) }
         case .home, .lobby, .ended:
             position.end()
         }

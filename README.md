@@ -1,6 +1,6 @@
 # Blindspot (HackPSU Fall 2026)
 
-Blindspot is a social-deduction game, inspired by Among Us, played in a real room on four iPhones. Players walk to real task stations, do motion-based tasks, and try to find the impostor.
+Blindspot is a social-deduction game, inspired by Among Us, played in a real room, or several joined rooms, on four to ten iPhones. Players walk to real task stations, do motion-based tasks, and try to find the impostor.
 
 ## MVP
 - Host records a perimeter pose walk, then a sweep of JPEG frames with matching poses/intrinsics, and saves an ARWorldMap. The app does no geometry.
@@ -12,7 +12,10 @@ Blindspot is a social-deduction game, inspired by Among Us, played in a real roo
 - Impostor swipes to kill a player on the SAME tile (25 s cooldown).
 - A dead player leaves their phone on the spot as the body, and may wander. Ghosts do not do tasks.
 - Report or emergency meeting, 30 s vote, ejection, win check.
-- One sabotage: lights out, fixed by holding a fix station.
+- Three sabotages for the impostors: lights out, a comms jammer (no reports, scrambled crew maps) and a meltdown (a minute to stop it with two crew at the fix station). One at a time.
+- Two crew powers: the Medic revives a freshly killed player once; the Scout pings where people are standing (counts only) twice.
+- Up to five tasks, including Orb Hunt and Signal Hunt, which you play by turning around the room.
+- Up to six scanned rooms in one game, joined by doors the host marks.
 - Fallback: if relocalization fails, a player taps their tile on a 2D map.
 
 ## Stack

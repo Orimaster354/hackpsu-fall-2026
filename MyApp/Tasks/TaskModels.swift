@@ -277,3 +277,148 @@ extension PatternModel.Direction {
         }
     }
 }
+
+// MARK: Hunts (orbs, signal)
+
+/// A direction relative to where the player was facing when the task began. Yaw is counter-clockwise seen from above
+/// (turning left makes it grow), pitch is up positive, both in radians. Pitch is measured from the horizon.
+struct HuntBearing: Equatable {
+    var yaw: Double
+    var pitch: Double
+
+    static let ahead = HuntBearing(yaw: 0, pitch: 0)
+
+    /// The angle in radians between two directions, 0 to pi.
+    func angle(to other: HuntBearing) -> Double {
+        let a = unit, b = other.unit
+        let dot = a.x * b.x + a.y * b.y + a.z * b.z
+        return acos(max(-1, min(1, dot)))
+    }
+
+    private var unit: (x: Double, y: Double, z: Double) {
+        (cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), sin(pitch))
+    }
+
+    /// An angle brought into -pi to pi.
+    static func wrapped(_ angle: Double) -> Double {
+        atan2(sin(angle), cos(angle))
+    }
+
+    /// Targets in order. Each one is `minTurn` to `maxTurn` of yaw away from the one before (the first from straight
+    /// ahead), on a random side, so the player has to turn for every one and a phone lying idle never reaches any.
+    static func randomTargets(count: Int, minTurn: Double, maxTurn: Double) -> [HuntBearing] {
+        var result: [HuntBearing] = []
+        var yaw = 0.0
+        for _ in 0 ..< count {
+            let side: Double = Bool.random() ? 1 : -1
+            yaw = wrapped(yaw + side * .random(in: minTurn ... maxTurn))
+            result.append(HuntBearing(yaw: yaw, pitch: .random(in: -0.25 ... 0.45)))
+        }
+        return result
+    }
+}
+
+/// Turns the phone's absolute look direction into a bearing relative to where the attempt started.
+private struct HuntFacing {
+    private var origin: Double?
+
+    mutating func bearing(of s: MotionSample) -> HuntBearing {
+        let start = origin ?? s.lookYaw
+        origin = start
+        return HuntBearing(yaw: HuntBearing.wrapped(s.lookYaw - start), pitch: s.lookPitch)
+    }
+}
+
+/// Orb Hunt: glowing orbs appear around the room one at a time. Turn to each one, put the crosshair on it and hold.
+/// Every orb is at least 70 degrees from the last, so it takes real turning, and an idle phone never finishes.
+struct OrbHuntModel: MotionTaskModel {
+    static let count = 3
+    /// How close the crosshair has to be, in radians (about 10 degrees), and how long it has to stay there.
+    static let tolerance = 0.18
+    static let dwell = 0.6
+    static let minTurn = 70.0 * .pi / 180
+    static let maxTurn = 140.0 * .pi / 180
+
+    let targets: [HuntBearing]
+    private(set) var index = 0
+    private(set) var dwellTime = 0.0
+    private(set) var aim = HuntBearing.ahead
+    private var facing = HuntFacing()
+
+    init(targets: [HuntBearing] = HuntBearing.randomTargets(count: OrbHuntModel.count, minTurn: OrbHuntModel.minTurn, maxTurn: OrbHuntModel.maxTurn)) {
+        self.targets = targets
+    }
+
+    /// The orb to find now, nil once all are found.
+    var current: HuntBearing? { index < targets.count ? targets[index] : nil }
+    var onTarget: Bool { current.map { aim.angle(to: $0) < Self.tolerance } ?? false }
+
+    var progress: Double {
+        guard !targets.isEmpty else { return 1 }
+        return min(1, (Double(index) + dwellTime / Self.dwell) / Double(targets.count))
+    }
+
+    mutating func step(_ s: MotionSample) {
+        aim = facing.bearing(of: s)
+        guard index < targets.count else { return }
+        guard onTarget else {
+            dwellTime = 0
+            return
+        }
+        dwellTime += min(s.dt, 0.1)
+        if dwellTime >= Self.dwell {
+            index += 1
+            dwellTime = 0
+        }
+    }
+}
+
+/// Signal Hunt: a hidden signal sits somewhere in the room. The signal gets stronger the closer the phone points to
+/// it, so sweep around, find the strongest spot and hold the phone there until it locks. Two signals, far apart.
+struct SignalModel: MotionTaskModel {
+    static let count = 2
+    /// Lock window in radians (about 12 degrees) and the time to hold it. The signal is felt within 90 degrees.
+    static let lockRadius = 0.21
+    static let dwell = 1.0
+    static let reach = Double.pi / 2
+    static let minTurn = 80.0 * .pi / 180
+    static let maxTurn = 150.0 * .pi / 180
+
+    let targets: [HuntBearing]
+    private(set) var index = 0
+    private(set) var dwellTime = 0.0
+    private(set) var aim = HuntBearing.ahead
+    private var facing = HuntFacing()
+
+    init(targets: [HuntBearing] = HuntBearing.randomTargets(count: SignalModel.count, minTurn: SignalModel.minTurn, maxTurn: SignalModel.maxTurn)) {
+        self.targets = targets
+    }
+
+    var current: HuntBearing? { index < targets.count ? targets[index] : nil }
+    var locked: Bool { current.map { aim.angle(to: $0) < Self.lockRadius } ?? false }
+
+    /// 0 (not heard) to 1 (dead on).
+    var strength: Double {
+        guard let current else { return 1 }
+        return max(0, 1 - aim.angle(to: current) / Self.reach)
+    }
+
+    var progress: Double {
+        guard !targets.isEmpty else { return 1 }
+        return min(1, (Double(index) + dwellTime / Self.dwell) / Double(targets.count))
+    }
+
+    mutating func step(_ s: MotionSample) {
+        aim = facing.bearing(of: s)
+        guard index < targets.count else { return }
+        guard locked else {
+            dwellTime = 0
+            return
+        }
+        dwellTime += min(s.dt, 0.1)
+        if dwellTime >= Self.dwell {
+            index += 1
+            dwellTime = 0
+        }
+    }
+}

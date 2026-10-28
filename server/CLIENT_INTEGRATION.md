@@ -37,7 +37,7 @@ Player has `id`, `name`, `tile: Tile?`, `alive: Bool`, `tileSource: "ar"|"manual
 {"t":"start"}
 ```
 
-Only the host edits/confirms, only in lobby. Edits broadcast `setup` and `lobby`. Confirmation broadcasts both with `setupConfirmed=true`; retrying confirmation is idempotent. Start requires four connected players and confirmed setup. The client cannot confirm by placing `setupConfirmed` on a `start` message.
+Only the host edits/confirms, only in lobby. Edits broadcast `setup` and `lobby`. Confirmation broadcasts both with `setupConfirmed=true`; retrying confirmation is idempotent. Start requires 4 to 10 connected players and confirmed setup. The client cannot confirm by placing `setupConfirmed` on a `start` message.
 
 Grid fields are `cols`, `rows`, `tileSize: 1.0`, `originX`, `originZ`, `playable: [Tile]`, and `edge: [Tile]`. A tile inside rectangular bounds can still be non-playable. Old `blocked` grids and the old client `setRoom` event are no longer accepted. Room geometry comes from the server. Phase 3 scan generation/upload routes remain pending; use the developer fixture to integrate the manual game now.
 
@@ -67,3 +67,10 @@ Run `npm.cmd run start:manual` in `server/` to seed each new room with the draft
 D should compile the Codable models against these fixtures, including nulls and Int64 values; connect from a simulator/phone; create/join/reconnect; edit/confirm setup; and complete a manual-tile round with B. The server tests verify kill/report/vote and sabotage/fix/task synchronization over four real WebSocket connections. They do not replace those iOS checks.
 
 Pending shared contracts for later phases: per-player completed-station IDs for dimmed AR icons are not present in GameState; agree with A/B/D before adding fields. Pose-log fixtures and the generated polygon/centroid acceptance criteria belong to Phase 3 and are not supplied by this manual setup fixture.
+
+## Roles, sabotages and rooms (added with the 10-player update)
+
+- `role` now also carries `power` (`"medic"`, `"scout"` or `null`) and `partners` (other impostors' player ids, impostors only). `scout` and `revived` are private messages.
+- `sabotage` takes `{kind: "lights"|"jammer"|"meltdown"}`; with no kind it still means lights. `state.sabotage` is `{kind, fixStationId, endsAt, holders}` or `null`, and `lightsOut` stays true during the lights sabotage. `ability` takes an optional `targetId`.
+- `lobby` and `setup` carry `zones` (empty when nothing was scanned). Scan and map HTTP routes accept an optional `zone` (`?zone=z2` on `/map/:room`); `setDoors` and `removeZone` are host-only lobby messages. Details and the shared-tile rule are in `docs/architecture.md`, "Multiple rooms (zones)".
+- Swift decoders treat missing `power`, `partners`, `zones` and `sabotage` as empty, so a one-room game from an older server still decodes.

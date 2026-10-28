@@ -356,6 +356,8 @@ final class FakeBackend: ScanBackend {
     /// Counts setup events, like GameSession.setupRevision. It rises even when the grid is unchanged.
     var setupRevision = 0
     var lastWorldMapQuality: WorldMapQuality?
+    var zone = "z1"
+    var zoneName: String?
     /// true: the server sends setup even though this upload HTTP reply fails (the reply was lost).
     var setupBeforeError = false
 
@@ -755,6 +757,19 @@ do {
     check(reports.contains { $0.1 == .ar }, "after the retry, tiles are reported with source ar")
     coordinator.end()
     check(mock.detail == .idle, "ending the game stops AR")
+}
+
+// Rooms: the flow tells the backend which room the next uploads belong to.
+do {
+    let backend = FakeBackend()
+    let flow = RoomScanFlow(backend: backend)
+    flow.beginRoom(zone: "z2", name: "Kitchen")
+    check(flow.zoneId == "z2" && flow.roomName == "Kitchen" && backend.zone == "z2" && backend.zoneName == "Kitchen",
+          "a new room sets the room the uploads go to")
+    flow.beginRoom(zone: "z3", name: "")
+    check(backend.zone == "z3" && backend.zoneName == nil, "an empty name leaves the server to name the room")
+    flow.setRoomName("Hall")
+    check(backend.zoneName == "Hall", "the name can still change before the walk")
 }
 
 print(failures == 0 ? "OK: \(checks) checks passed" : "FAILED: \(failures) of \(checks) checks")

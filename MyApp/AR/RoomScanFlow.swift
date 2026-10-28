@@ -13,7 +13,10 @@ struct FrameInput {
 /// and `GameClient`; tests use a fake.
 @MainActor
 protocol ScanBackend: AnyObject {
-    /// The grid the server last broadcast (`setup`), in the host's ARKit world frame.
+    /// Which room the next uploads belong to (`z1` to `z6`) and what the host calls it.
+    var zone: String { get set }
+    var zoneName: String? { get set }
+    /// The grid the server last broadcast (`setup`) for the room being scanned, in the host's ARKit world frame.
     var grid: MapGrid? { get }
     func uploadPerimeter(_ poses: [PoseSample]) async throws -> PerimeterResult
     func uploadSweep(vantage: Tile, intrinsics: CameraIntrinsics, frames: [SweepFrame]) async throws -> SweepResult
@@ -30,6 +33,9 @@ protocol ScanBackend: AnyObject {
 }
 
 extension ScanBackend {
+    /// Backends that only ever scan one room keep the first room.
+    var zone: String { get { "z1" } set {} }
+    var zoneName: String? { get { nil } set {} }
     var setupRevision: Int { 0 }
     var lastWorldMapQuality: WorldMapQuality? { nil }
 }
@@ -112,6 +118,10 @@ final class RoomScanFlow {
     private(set) var mapFailed = false
 
     private(set) var report: [ReportLine] = []
+
+    /// The room being scanned. Starting a room again with an id that already exists replaces that room.
+    private(set) var zoneId = "z1"
+    private(set) var roomName = ""
 
     let backend: ScanBackend
 
@@ -202,6 +212,27 @@ final class RoomScanFlow {
         perimeterSamples = recorder.count
         perimeterElapsed = recorder.elapsed
         perimeterPath = recorder.pathLength
+    }
+
+    // MARK: Rooms
+
+    /// Gets ready to scan a room: a new one, or an existing one again. Only between scans. The AR session keeps
+    /// running, so the host can walk to the next room without the camera restarting.
+    func beginRoom(zone: String, name: String) {
+        guard step == .idle || step == .done else { return }
+        resetCaptureData()
+        zoneId = zone
+        roomName = name
+        backend.zone = zone
+        backend.zoneName = name.isEmpty ? nil : name
+        message = nil
+        step = .idle
+    }
+
+    func setRoomName(_ name: String) {
+        guard step == .idle else { return }
+        roomName = name
+        backend.zoneName = name.isEmpty ? nil : name
     }
 
     // MARK: Step 1: perimeter

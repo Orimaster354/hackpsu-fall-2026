@@ -4,6 +4,10 @@ import SwiftUI
 /// same room cannot read it off the screen. "Got it" appears after the first reveal.
 struct RoleRevealView: View {
     let role: PlayerRole
+    /// The crew member's special power, if any.
+    let power: Power?
+    /// Names of the other impostors, for an impostor.
+    let partners: [String]
     let onContinue: () -> Void
 
     @State private var isRevealed: Bool
@@ -11,8 +15,11 @@ struct RoleRevealView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// `startsRevealed` is for previews and screenshots.
-    init(role: PlayerRole, startsRevealed: Bool = false, onContinue: @escaping () -> Void) {
+    init(role: PlayerRole, power: Power? = nil, partners: [String] = [], startsRevealed: Bool = false,
+         onContinue: @escaping () -> Void) {
         self.role = role
+        self.power = power
+        self.partners = partners
         self.onContinue = onContinue
         _isRevealed = State(initialValue: startsRevealed)
         _hasRevealed = State(initialValue: startsRevealed)
@@ -80,7 +87,7 @@ struct RoleRevealView: View {
         .animation(.easeOut(duration: isRevealed ? 0.3 : 0.15), value: isRevealed)
         .onLongPressGesture(minimumDuration: .infinity, maximumDistance: .infinity, perform: {}, onPressingChanged: setRevealed)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(isRevealed ? "\(role.title). \(role.briefing)" : "Your role is hidden")
+        .accessibilityLabel(isRevealed ? "\(role.title). \(role.briefing)\(power.map { " Special: \($0.title). \($0.briefing)" } ?? "")" : "Your role is hidden")
         .accessibilityHint(isRevealed ? "Double tap to hide it" : "Double tap to reveal it")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { setRevealed(!isRevealed) }
@@ -112,6 +119,21 @@ struct RoleRevealView: View {
             Text(role.briefing)
                 .font(.callout)
                 .multilineTextAlignment(.center)
+            if let power {
+                VStack(spacing: 4) {
+                    Label("Special: \(power.title)", systemImage: power.symbol)
+                        .font(.system(.headline, design: .rounded, weight: .heavy))
+                        .foregroundStyle(power.tint)
+                    Text(power.briefing)
+                        .font(.footnote)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            if role == .impostor, !partners.isEmpty {
+                Label("Your partner\(partners.count == 1 ? "" : "s"): \(partners.joined(separator: ", "))", systemImage: "person.2.fill")
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 

@@ -28,22 +28,22 @@ final class ScanClient {
     }
 
     /// `POST /scan/:room/perimeter`
-    func uploadPerimeter(poses: [PoseSample]) async throws -> PerimeterResult {
+    func uploadPerimeter(poses: [PoseSample], zone: String = "z1", name: String? = nil) async throws -> PerimeterResult {
         guard (PerimeterUpload.minSamples...PerimeterUpload.maxSamples).contains(poses.count) else {
             throw ScanError.invalid("Perimeter needs \(PerimeterUpload.minSamples) to \(PerimeterUpload.maxSamples) samples, got \(poses.count).")
         }
-        return try await post("perimeter", body: PerimeterUpload(poses: poses), timeout: 30)
+        return try await post("perimeter", body: PerimeterUpload(poses: poses, zone: zone, name: name), timeout: 30)
     }
 
     /// `POST /scan/:room/sweep`
-    func uploadSweep(vantage: Tile, intrinsics: CameraIntrinsics, frames: [SweepFrame]) async throws -> SweepResult {
+    func uploadSweep(vantage: Tile, intrinsics: CameraIntrinsics, frames: [SweepFrame], zone: String = "z1") async throws -> SweepResult {
         guard (SweepUpload.minFrames...SweepUpload.maxFrames).contains(frames.count) else {
             throw ScanError.invalid("Sweep needs \(SweepUpload.minFrames) to \(SweepUpload.maxFrames) frames, got \(frames.count).")
         }
         if let big = frames.first(where: { $0.jpegByteCount > SweepFrame.maxJPEGBytes }) {
             throw ScanError.invalid("Frame \(big.index) is over \(SweepFrame.maxJPEGBytes / 1024) KiB. Lower the JPEG quality.")
         }
-        return try await post("sweep", body: SweepUpload(vantage: vantage, intrinsics: intrinsics, frames: frames), timeout: 180)
+        return try await post("sweep", body: SweepUpload(vantage: vantage, intrinsics: intrinsics, frames: frames, zone: zone), timeout: 180)
     }
 
     private func post<Body: Encodable & Sendable, Output: Decodable>(_ route: String, body: Body, timeout: TimeInterval) async throws -> Output {

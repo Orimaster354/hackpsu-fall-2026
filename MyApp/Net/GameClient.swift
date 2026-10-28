@@ -274,11 +274,11 @@ final class GameClient {
 
     enum MapError: Error { case notInRoom, badURL, http(Int) }
 
-    /// `POST /map/:room`. Host only, lobby only, 1 byte to 64 MiB.
-    func uploadMap(_ data: Data) async throws {
+    /// `POST /map/:room`. Host only, lobby only, 1 byte to 64 MiB. `zone` is the room the map belongs to.
+    func uploadMap(_ data: Data, zone: String = "z1") async throws {
         guard let room = roomCode, let id = playerId else { throw MapError.notInRoom }
         guard let endpoint = endpointOverride ?? ServerConfig.current(defaults: defaults),
-              let url = endpoint.mapURL(room: room) else { throw MapError.badURL }
+              let url = endpoint.mapURL(room: room, zone: zone) else { throw MapError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -290,10 +290,10 @@ final class GameClient {
     }
 
     /// `GET /map/:room`. Returns nil on 404 (no map uploaded yet).
-    func downloadMap() async throws -> Data? {
+    func downloadMap(zone: String = "z1") async throws -> Data? {
         guard let room = roomCode else { throw MapError.notInRoom }
         guard let endpoint = endpointOverride ?? ServerConfig.current(defaults: defaults),
-              let url = endpoint.mapURL(room: room) else { throw MapError.badURL }
+              let url = endpoint.mapURL(room: room, zone: zone) else { throw MapError.badURL }
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse else { return data }
         if http.statusCode == 404 { return nil }

@@ -10,4 +10,6 @@ struct MotionSample {
     var rotationRate: Double
     var dt: Double
     var accelerationAlongGravity: Double = 0
+    var lookYaw: Double = 0
+    var lookPitch: Double = 0
 }

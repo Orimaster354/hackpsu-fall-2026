@@ -18,18 +18,26 @@ final class LiveScanBackend: ScanBackend {
         scanClient = ScanClient(client: client)
     }
 
-    var grid: MapGrid? { session.grid }
+    /// The room being scanned (z1 to z6) and the name the host gave it. Every upload carries them.
+    var zone = "z1"
+    var zoneName: String?
+
+    /// The grid of the room being scanned, in that room's own frame. The game grid (`session.grid`) joins every
+    /// room, so it only matches while there is one room, and is the fallback until the server reports this one.
+    var grid: MapGrid? {
+        session.zones.first { $0.id == zone }.map { MapGrid($0.grid) } ?? session.grid
+    }
     var setupRevision: Int { session.setupRevision }
     /// How complete the map was at the moment it was saved. The save still goes ahead after the timeout, so the
     /// host is told here when it was not complete.
     private(set) var lastWorldMapQuality: WorldMapQuality?
 
     func uploadPerimeter(_ poses: [PoseSample]) async throws -> PerimeterResult {
-        try await scanClient.uploadPerimeter(poses: poses)
+        try await scanClient.uploadPerimeter(poses: poses, zone: zone, name: zoneName)
     }
 
     func uploadSweep(vantage: Tile, intrinsics: CameraIntrinsics, frames: [SweepFrame]) async throws -> SweepResult {
-        try await scanClient.uploadSweep(vantage: vantage, intrinsics: intrinsics, frames: frames)
+        try await scanClient.uploadSweep(vantage: vantage, intrinsics: intrinsics, frames: frames, zone: zone)
     }
 
     func captureWorldMap(progress: @escaping @MainActor (String) -> Void) async throws -> Data {
@@ -49,7 +57,7 @@ final class LiveScanBackend: ScanBackend {
     }
 
     func uploadWorldMap(_ data: Data) async throws {
-        try await client.uploadMap(data)
+        try await client.uploadMap(data, zone: zone)
     }
 
     /// Compares the documented pixel-to-ray math with ARKit's own projection of the same camera. If the two agree

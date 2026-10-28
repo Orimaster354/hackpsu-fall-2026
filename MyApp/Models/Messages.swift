@@ -58,8 +58,16 @@ enum ClientMessage: Equatable {
     case emergency
     /// A player id, or `MeetingState.skip`.
     case vote(target: String)
-    case sabotage
+    /// An impostor starts one of the three sabotages.
+    case sabotage(kind: SabotageKind)
+    /// Repairs the active sabotage at its fix station. A meltdown needs two crew to send this together.
     case fix(stationId: String)
+    /// A crew power. Medic: `targetId` is the body to revive. Scout: no target.
+    case ability(targetId: String?)
+    /// Host, lobby: sets which doors join which scanned rooms. Replaces the whole list.
+    case setDoors([DoorLink])
+    /// Host, lobby: forgets one scanned room (`z1` to `z6`).
+    case removeZone(String)
 
     var type: String {
         switch self {
@@ -81,6 +89,9 @@ enum ClientMessage: Equatable {
         case .vote: return "vote"
         case .sabotage: return "sabotage"
         case .fix: return "fix"
+        case .ability: return "ability"
+        case .setDoors: return "setDoors"
+        case .removeZone: return "removeZone"
         }
     }
 }
@@ -90,6 +101,7 @@ extension ClientMessage: Encodable {
         case t, name, room, playerId, ready, photos, boxes
         case frameId, timestampMs, jpeg, station, id, delete
         case tile, source, stationId, targetId, bodyId, target
+        case kind, doors, zone
     }
 
     func encode(to encoder: Encoder) throws {
@@ -127,7 +139,15 @@ extension ClientMessage: Encodable {
             try c.encode(bodyId, forKey: .bodyId)
         case let .vote(target):
             try c.encode(target, forKey: .target)
-        case .scanStart, .scanStop, .confirmSetup, .start, .emergency, .sabotage:
+        case let .sabotage(kind):
+            try c.encode(kind, forKey: .kind)
+        case let .ability(targetId):
+            try c.encodeIfPresent(targetId, forKey: .targetId)
+        case let .setDoors(doors):
+            try c.encode(doors, forKey: .doors)
+        case let .removeZone(zone):
+            try c.encode(zone, forKey: .zone)
+        case .scanStart, .scanStop, .confirmSetup, .start, .emergency:
             break
         }
     }
@@ -157,15 +177,19 @@ struct LobbySnapshot: Codable, Hashable {
     /// nil until the server has produced a setup for the room.
     var grid: Grid?
     var stations: [Station]
+    /// The scanned rooms. Empty for a setup that did not come from a scan. A one-room game has one entry.
+    var zones: [ZoneInfo] = []
     var hasMap: Bool
     /// True once the host confirmed the setup. Locked after that, and still true after a reconnect.
     var setupConfirmed: Bool
 
-    init(hostId: String? = nil, players: [Player], grid: Grid?, stations: [Station], hasMap: Bool, setupConfirmed: Bool) {
+    init(hostId: String? = nil, players: [Player], grid: Grid?, stations: [Station], zones: [ZoneInfo] = [],
+         hasMap: Bool, setupConfirmed: Bool) {
         self.hostId = hostId
         self.players = players
         self.grid = grid
         self.stations = stations
+        self.zones = zones
         self.hasMap = hasMap
         self.setupConfirmed = setupConfirmed
     }
@@ -176,6 +200,7 @@ struct LobbySnapshot: Codable, Hashable {
         players = try c.decode([Player].self, forKey: .players)
         grid = try c.decodeIfPresent(Grid.self, forKey: .grid)
         stations = try c.decode([Station].self, forKey: .stations)
+        zones = try c.decodeIfPresent([ZoneInfo].self, forKey: .zones) ?? []
         hasMap = try c.decode(Bool.self, forKey: .hasMap)
         setupConfirmed = try c.decodeIfPresent(Bool.self, forKey: .setupConfirmed) ?? false
     }
@@ -194,8 +219,13 @@ enum ServerMessage: Equatable {
     case suggestions(objects: [DetectedObject])
     case scanStatus(ScanStatus)
     case scanDetections(frameId: String, timestampMs: Int, objects: [DetectedObject])
-    /// `role` is nil if the server sent none (for example a reconnect before the game started).
-    case role(Role?)
+    /// `role` is nil if the server sent none (for example a reconnect before the game started). `power` is the
+    /// crew member's special ability, if any. `partners` lists the other impostors' ids, and only impostors get it.
+    case role(Role?, power: Power?, partners: [String])
+    /// The Scout's private ping result.
+    case scout(ScoutPing)
+    /// Sent to a player the Medic brought back.
+    case revived
     case state(GameState)
     /// Sent to the victim only. The killer is not revealed.
     case killed
@@ -204,7 +234,7 @@ enum ServerMessage: Equatable {
     case error(code: String, message: String)
     /// Documented scan-processing progress: "polygon", "gemini" or "placing".
     case processing(step: String)
-    case setup(grid: Grid, stations: [Station], setupConfirmed: Bool)
+    case setup(grid: Grid, stations: [Station], zones: [ZoneInfo], setupConfirmed: Bool)
     /// A well-formed frame with a type this client does not know. Ignored, not fatal.
     case unknown(type: String)
 }
@@ -213,6 +243,7 @@ extension ServerMessage: Decodable {
     private enum Keys: String, CodingKey {
         case t, playerId, room, objects, frameId, timestampMs, role, ejected, winner
         case code, message, step, grid, stations, setupConfirmed
+        case power, partners, tiles, usesLeft, cooldownEndsAt, zones
     }
 
     init(from decoder: Decoder) throws {
@@ -233,7 +264,15 @@ extension ServerMessage: Decodable {
                                    timestampMs: try c.decode(Int.self, forKey: .timestampMs),
                                    objects: try c.decode([DetectedObject].self, forKey: .objects))
         case "role":
-            self = .role(try c.decodeIfPresent(Role.self, forKey: .role))
+            self = .role(try c.decodeIfPresent(Role.self, forKey: .role),
+                         power: try c.decodeIfPresent(Power.self, forKey: .power),
+                         partners: try c.decodeIfPresent([String].self, forKey: .partners) ?? [])
+        case "scout":
+            self = .scout(ScoutPing(tiles: try c.decode([ScoutTile].self, forKey: .tiles),
+                                    usesLeft: try c.decode(Int.self, forKey: .usesLeft),
+                                    cooldownEndsAt: try c.decode(Int.self, forKey: .cooldownEndsAt)))
+        case "revived":
+            self = .revived
         case "state":
             self = .state(try GameState(from: decoder))
         case "killed":
@@ -252,6 +291,7 @@ extension ServerMessage: Decodable {
         case "setup":
             self = .setup(grid: try c.decode(Grid.self, forKey: .grid),
                           stations: try c.decode([Station].self, forKey: .stations),
+                          zones: try c.decodeIfPresent([ZoneInfo].self, forKey: .zones) ?? [],
                           setupConfirmed: try c.decodeIfPresent(Bool.self, forKey: .setupConfirmed) ?? false)
         default:
             self = .unknown(type: type)

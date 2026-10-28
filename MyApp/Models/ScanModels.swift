@@ -79,6 +79,10 @@ nonisolated struct PerimeterUpload: Codable, Hashable, Sendable {
     static let minSamples = 100
     static let maxSamples = 3000
     var poses: [PoseSample]
+    /// Which room this walk is. `z1` to `z6`; the first room is `z1`. A rescan of the same id replaces that room.
+    var zone: String = "z1"
+    /// What the host calls the room. Optional; the server numbers rooms otherwise.
+    var name: String? = nil
 }
 
 /// One sweep frame. `jpeg` is base64 of the JPEG bytes. `t` is seconds since the sweep started.
@@ -107,6 +111,8 @@ nonisolated struct SweepUpload: Codable, Hashable, Sendable {
     var vantage: Tile
     var intrinsics: CameraIntrinsics
     var frames: [SweepFrame]
+    /// The room this sweep belongs to; its perimeter must have been uploaded first.
+    var zone: String = "z1"
 }
 
 struct PerimeterResult: Codable, Hashable {

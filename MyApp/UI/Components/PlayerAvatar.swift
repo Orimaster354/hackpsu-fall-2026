@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum PlayerPalette {
-    private static let colors: [Color] = [0xEF4444, 0x4C8DFF, 0x22C55E, 0xEAB308, 0xA78BFA, 0x22D3EE, 0xFB923C, 0xF472B6]
+    private static let colors: [Color] = [0xEF4444, 0x4C8DFF, 0x22C55E, 0xEAB308, 0xA78BFA, 0x22D3EE, 0xFB923C, 0xF472B6, 0x84CC16, 0xE879F9]
         .map { Color(hex: $0) }
 
     /// Colors follow a player's position in the lobby list, so that list's order must stay stable.

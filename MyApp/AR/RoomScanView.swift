@@ -8,6 +8,9 @@ struct RoomScanView: View {
     @State private var flow: RoomScanFlow
     private let gameSession: GameSession
     @State private var confirmClose = false
+    /// Which room this scan is for, and what the host calls it.
+    @State private var roomChoice = "z1"
+    @State private var roomName = ""
     @Environment(\.dismiss) private var dismiss
 
     init(client: GameClient, session: GameSession) {
@@ -39,6 +42,8 @@ struct RoomScanView: View {
                 flow.handle(FrameInput(frame: frame, includePixelBuffer: flow.wantsPixelBuffer))
             }
             tracking.start()
+            roomChoice = newZoneId ?? gameSession.zones.last?.id ?? "z1"
+            flow.beginRoom(zone: roomChoice, name: roomName)
         }
         .onDisappear {
             // Breaks the tracking -> closure -> flow -> backend -> tracking cycle.
@@ -55,6 +60,22 @@ struct RoomScanView: View {
             Text("The walk and sweep are lost, and you will need to scan again.")
         }
     }
+
+    // MARK: Rooms
+
+    /// The first room id (z1 to z6) no scanned room uses, nil once all six are used.
+    private var newZoneId: String? {
+        let used = Set(gameSession.zones.map(\.id))
+        return (1 ... 6).map { "z\($0)" }.first { !used.contains($0) }
+    }
+
+    private var roomChoices: [(id: String, label: String)] {
+        var list = gameSession.zones.map { (id: $0.id, label: "Scan \($0.name) again") }
+        if let id = newZoneId { list.append((id: id, label: gameSession.zones.isEmpty ? "This room" : "A new room")) }
+        return list
+    }
+
+    private var isNewRoom: Bool { !gameSession.zones.contains { $0.id == flow.zoneId } }
 
     // MARK: Chrome
 
@@ -101,7 +122,8 @@ struct RoomScanView: View {
 
     private var idle: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Scan the room").font(.title2.bold())
+            Text(gameSession.zones.isEmpty ? "Scan the room" : "Scan a room").font(.title2.bold())
+            if gameSession.zones.isEmpty == false || roomChoices.count > 1 { roomPicker }
             step(1, "Stick 6 to 8 bright yellow notes (7.5 cm or bigger) on the walls at chest height, at least 2 m apart.")
             step(2, "Walk once around the room edge, 0.3 to 0.5 m from the walls, and finish where you started (30 to 60 s).")
             step(3, "Pick a tile near the middle, stand on it, and turn slowly through a full circle (about 30 s).")
@@ -115,6 +137,27 @@ struct RoomScanView: View {
                 .disabled(!flow.canStartPerimeter)
             if !flow.canStartPerimeter {
                 Text(tracking.isRunning ? "Waiting for tracking to be Normal. \(tracking.quality.hint)" : "The camera is not running.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Which room this scan is. A new room joins the game next to the others. Choosing an existing room scans it
+    /// again and replaces it, which also drops that room's doors.
+    private var roomPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Room", selection: $roomChoice) {
+                ForEach(roomChoices, id: \.id) { Text($0.label).tag($0.id) }
+            }
+            .pickerStyle(.menu)
+            .onChange(of: roomChoice) { _, id in flow.beginRoom(zone: id, name: roomName) }
+            if isNewRoom {
+                TextField("Room name (optional)", text: $roomName)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: roomName) { _, name in flow.setRoomName(name) }
+            }
+            if gameSession.zones.isEmpty == false {
+                Text("Walk into the room you want to add and stick its notes first. Each room gets its own map, so stand inside it before you start.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -247,9 +290,19 @@ struct RoomScanView: View {
     private var done: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Scan uploaded", systemImage: "checkmark.seal.fill").font(.title2.bold()).foregroundStyle(.green)
-            Text("Close this screen and review the stations the server placed. Move or add stations on the edge tiles, then confirm.")
+            Text(gameSession.zones.count > 1
+                 ? "Close this screen, mark the doors between rooms, and review the stations the server placed, then confirm."
+                 : "Close this screen and review the stations the server placed. Move or add stations on the edge tiles, then confirm.")
                 .font(.footnote).foregroundStyle(.secondary)
             reportView
+            if let id = newZoneId {
+                Button {
+                    roomName = ""
+                    roomChoice = id
+                    flow.beginRoom(zone: id, name: "")
+                } label: { Text("Scan another room").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered)
+            }
             Button { dismiss() } label: { Text("Back to the lobby").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
         }
     }

@@ -314,3 +314,133 @@ struct PatternTaskView: View {
         .accessibilityValue("\(model.index) of \(model.sequence.count)")
     }
 }
+
+// MARK: Orb hunt
+
+extension TaskKind {
+    /// True for the tasks played by facing directions in the room, not by looking at one prop.
+    var huntsInSpace: Bool { self == .orbs || self == .signal }
+}
+
+/// Where a target sits in the round finder: left and right by yaw, up and down by pitch, 90 degrees to the edge.
+/// Targets past the edge are held on the rim, so the dot always points the way.
+private func finderOffset(target: HuntBearing, aim: HuntBearing, radius: Double) -> CGSize {
+    let scale = radius / (Double.pi / 2)
+    var dx = -HuntBearing.wrapped(target.yaw - aim.yaw) * scale
+    var dy = -(target.pitch - aim.pitch) * scale
+    let length = hypot(dx, dy)
+    if length > radius {
+        dx *= radius / length
+        dy *= radius / length
+    }
+    return CGSize(width: dx, height: dy)
+}
+
+struct OrbHuntTaskView: View {
+    let context: TaskContext
+    @State private var model = OrbHuntModel()
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Arena(highlighted: model.onTarget) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(Theme.Palette.textSecondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
+                        .padding(60)
+                    if let target = model.current {
+                        let offset = finderOffset(target: target, aim: model.aim, radius: 100)
+                        Circle()
+                            .fill(model.onTarget ? Theme.Palette.success : Theme.Palette.warning)
+                            .frame(width: 26, height: 26)
+                            .shadow(color: (model.onTarget ? Theme.Palette.success : Theme.Palette.warning).opacity(0.8), radius: 8)
+                            .offset(offset)
+                            .animation(.easeOut(duration: 0.08), value: offset.width + offset.height)
+                    }
+                    Image(systemName: "plus")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("\(min(model.index + 1, OrbHuntModel.count)) / \(OrbHuntModel.count)")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                        .offset(y: 100)
+                }
+            }
+            Text(model.onTarget ? "Hold it there" : "Turn until the orb is on the crosshair")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .drive($model, context) { _ in
+            let telemetry = context.telemetry
+            telemetry.targetYaw = model.current?.yaw ?? 0
+            telemetry.targetPitch = model.current?.pitch ?? 0
+            telemetry.huntIndex = model.index
+            telemetry.huntDwell = model.dwellTime / OrbHuntModel.dwell
+            telemetry.good = model.onTarget
+        }
+        .sensoryFeedback(.success, trigger: model.index)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Turn to each glowing orb and hold the crosshair on it")
+        .accessibilityValue("\(model.index) of \(OrbHuntModel.count) orbs")
+    }
+}
+
+// MARK: Signal hunt
+
+struct SignalTaskView: View {
+    let context: TaskContext
+    @State private var model = SignalModel()
+
+    /// Whole steps of signal strength, so a haptic ticks when it gets stronger or weaker by a step.
+    private var steps: Int { Int(model.strength * 8) }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Arena(highlighted: model.locked) {
+                ZStack {
+                    ForEach(0 ..< 4, id: \.self) { ring in
+                        let lit = model.strength > Double(ring) / 4
+                        Circle()
+                            .strokeBorder(lit ? tint : Theme.Palette.textSecondary.opacity(0.25), lineWidth: lit ? 3 : 1)
+                            .frame(width: 60 + CGFloat(ring) * 45, height: 60 + CGFloat(ring) * 45)
+                    }
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 36 + 24 * model.strength))
+                        .foregroundStyle(tint)
+                    Text("\(min(model.index + 1, SignalModel.count)) / \(SignalModel.count)")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                        .offset(y: 100)
+                }
+                .animation(.easeOut(duration: 0.1), value: steps)
+            }
+            Text(status)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .drive($model, context) { _ in
+            let telemetry = context.telemetry
+            telemetry.targetYaw = model.current?.yaw ?? 0
+            telemetry.targetPitch = model.current?.pitch ?? 0
+            telemetry.huntIndex = model.index
+            telemetry.huntDwell = model.dwellTime / SignalModel.dwell
+            telemetry.signalStrength = model.strength
+            telemetry.good = model.locked
+        }
+        .sensoryFeedback(.impact(weight: .light), trigger: steps)
+        .sensoryFeedback(.success, trigger: model.index)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Sweep the phone around to find the hidden signal and hold on it")
+        .accessibilityValue(status)
+    }
+
+    private var tint: Color { model.locked ? Theme.Palette.success : Theme.Palette.crew }
+
+    private var status: String {
+        if model.locked { return "Locking on… hold still" }
+        switch model.strength {
+        case ..<0.25: return "No signal. Sweep the room slowly"
+        case ..<0.6: return "Faint. Keep sweeping"
+        default: return "Getting hot. Home in on it"
+        }
+    }
+}

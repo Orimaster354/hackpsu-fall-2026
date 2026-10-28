@@ -12,8 +12,15 @@ final class GameSession {
     enum LobbyStatus: Equatable { case waiting(missing: Int), needsSetup, ready, starting }
     enum SetupStatus: Equatable { case needsScan, processing(SetupStep), needsReview, confirmed }
 
-    /// `start` needs 4 players (docs/architecture.md).
-    static let requiredPlayers = 4
+    /// A game needs 4 to 10 connected players (docs/architecture.md). One impostor up to six players, two from seven.
+    static let minPlayers = 4
+    static let maxPlayers = 10
+    /// What `start` needs. Kept under the old name for the screens that still use it.
+    static let requiredPlayers = minPlayers
+    /// A game can span up to six scanned rooms (the server's limit).
+    static let maxRooms = 6
+
+    static func impostorCount(forPlayers count: Int) -> Int { count >= 7 ? 2 : 1 }
 
     // Room
     private(set) var roomCode: String?
@@ -28,14 +35,29 @@ final class GameSession {
     /// happens when the host repeats a perimeter walk with the same poses. A scan step waits for this to change
     /// instead of comparing grids.
     private(set) var setupRevision = 0
+    /// The scanned rooms (empty until the first perimeter). Each has its own grid, offset, map and doors.
+    private(set) var zones: [ZoneInfo] = []
 
     // Game
     private(set) var phase: GamePhase = .lobby
     private(set) var role: PlayerRole?
     private(set) var roleAcknowledged = false
+    /// This player's special crew power, if any. Private.
+    private(set) var power: Power?
+    /// Ids of the other impostors, for an impostor. Empty for crew.
+    private(set) var partners: [String] = []
+    /// The Scout's latest ping and when it arrived. The map shows it for a few seconds.
+    private(set) var scoutPing: ScoutPing?
+    private(set) var scoutPingAt: Date?
+    /// True once the Medic has used the revive, so the button can hide.
+    private(set) var reviveUsed = false
+    /// Set when the Medic brings this player back; the HUD shows a short notice.
+    private(set) var revivedAt: Date?
     private(set) var tasksDone = 0
     private(set) var tasksTotal = 0
     private(set) var lightsOut = false
+    /// The sabotage that is active right now (lights, jammer or meltdown), or nil.
+    private(set) var activeSabotage: SabotageState?
     private(set) var killCooldownEndsAt: Date?
     private(set) var meeting: MeetingInfo?
     /// A meeting result the player has not seen yet. The result screen clears it.
@@ -84,7 +106,7 @@ final class GameSession {
         // The game has started but this phone's `role` has not arrived yet.
         if pending == .start || phase != .lobby { return .starting }
         // The server needs four connected players. A disconnected player still holds a seat.
-        let missing = Self.requiredPlayers - players.filter(\.connected).count
+        let missing = Self.minPlayers - players.filter(\.connected).count
         if missing > 0 { return .waiting(missing: missing) }
         return isHost && !setupConfirmed ? .needsSetup : .ready
     }
@@ -171,6 +193,14 @@ final class GameSession {
         phase = .lobby
         role = nil
         roleAcknowledged = false
+        power = nil
+        partners = []
+        scoutPing = nil
+        scoutPingAt = nil
+        reviveUsed = false
+        revivedAt = nil
+        zones = []
+        activeSabotage = nil
         tasksDone = 0
         tasksTotal = 0
         lightsOut = false
@@ -224,14 +254,41 @@ final class GameSession {
         send(.vote(vote))
     }
 
-    func sabotage() {
-        guard role == .impostor, isAlive, phase == .playing, !lightsOut else { return }
-        send(.sabotage)
+    /// An impostor starts one of the three sabotages. Only one can be active, and they share a cooldown.
+    func sabotage(_ kind: SabotageKind) {
+        guard role == .impostor, isAlive, phase == .playing, activeSabotage == nil else { return }
+        send(.sabotage(kind))
     }
 
+    /// Repairs the active sabotage. It must be at that sabotage's fix station; a meltdown needs two crew at once.
     func fix(_ station: MapStation) {
-        guard role == .crew, isAlive, phase == .playing, lightsOut, station.kind == .fix else { return }
+        guard role == .crew, isAlive, phase == .playing, let sabotage = activeSabotage, station.kind == .fix,
+              sabotage.fixStationId == nil || sabotage.fixStationId == station.id else { return }
         send(.fix(stationID: station.id))
+    }
+
+    /// Medic: revive the body on this tile. Scout: ping. Both are checked again by the server.
+    func useAbility() {
+        guard role == .crew, isAlive, phase == .playing, let power else { return }
+        switch power {
+        case .medic:
+            guard !reviveUsed, let body = bodiesHere.first else { return }
+            reviveUsed = true
+            send(.ability(targetID: body.id))
+        case .scout:
+            send(.ability(targetID: nil))
+        }
+    }
+
+    /// Host, lobby: set the doors between scanned rooms.
+    func setDoors(_ doors: [DoorLink]) {
+        guard isHost, phase == .lobby else { return }
+        send(.setDoors(doors))
+    }
+
+    func removeZone(_ id: String) {
+        guard isHost, phase == .lobby else { return }
+        send(.removeZone(id))
     }
 
     func acknowledgeResult() {
@@ -247,6 +304,18 @@ final class GameSession {
             roomCode = room
             finish(.create)
             finish(.join)
+        case let .zones(zones):
+            self.zones = zones
+        case let .power(power, partners):
+            self.power = power
+            self.partners = partners
+        case let .scout(ping):
+            scoutPing = ping
+            scoutPingAt = Date()
+        case .revived:
+            revivedAt = Date()
+            // Back in the game: the old "you were killed" state no longer applies.
+            if let index = players.firstIndex(where: { $0.id == myID }) { players[index].alive = true }
         case let .lobby(players, grid, stations, hasMap):
             self.players = players
             self.grid = grid
@@ -278,6 +347,8 @@ final class GameSession {
             lastResult = result
             if result.ejected != nil || phase == .meeting || meeting != nil { pendingResult = result }
         case let .error(error):
+            // A rejected revive (wrong tile, too late) leaves the Medic their one use.
+            if error.code == "INVALID_BODY" || error.code == "ABILITY_USED" { reviveUsed = error.code == "ABILITY_USED" }
             // A rejected `taskDone` arrives as an error right after the intent. Undo the optimistic mark.
             if let attempt = lastTaskAttempt, Date().timeIntervalSince(attempt.at) < 2 {
                 completedStationIDs.remove(attempt.id)
@@ -293,6 +364,7 @@ final class GameSession {
         tasksDone = snapshot.tasksDone
         tasksTotal = snapshot.tasksTotal
         lightsOut = snapshot.lightsOut
+        activeSabotage = snapshot.sabotage
         killCooldownEndsAt = snapshot.killCooldownEndsAt
         setMeeting(snapshot.meeting)
         if snapshot.phase != .lobby { finish(.start) }

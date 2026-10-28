@@ -1,13 +1,13 @@
 # Architecture
 
 ## Overview
-Four iPhones connect over WebSocket to one authoritative Node server on a laptop (phone hotspot, LAN IP). The host scans the room in one ARKit session in two steps. First a perimeter walk logs camera poses, from which the server builds the room outline and the 1 m grid. Then the host stands on a chosen tile and slowly turns 360 degrees while the app uploads pose-tagged photos; the server finds yellow sticky notes on the walls, turns each into an edge tile, and picks 3 task stations and 1 sabotage (fix) station. The server also places the emergency tile. Other phones download everything, relocalize, and render the result as AR icons.
+Four to ten iPhones connect over WebSocket to one authoritative Node server on a laptop (phone hotspot, LAN IP). The host scans the room in one ARKit session in two steps. First a perimeter walk logs camera poses, from which the server builds the room outline and the 1 m grid. Then the host stands on a chosen tile and slowly turns 360 degrees while the app uploads pose-tagged photos; the server finds yellow sticky notes on the walls, turns each into an edge tile, and picks up to 5 task stations (shared across all rooms) and 1 sabotage (fix) station per room. The server also places the emergency tile. A game can span up to six scanned rooms; see "Multiple rooms (zones)". Other phones download everything, relocalize, and render the result as AR icons.
 
 ```
 Host, one ARKit session:
   1. perimeter walk (poses only)  --> Server: room polygon, grid, edge tiles, emergency tile   --> setup (no stations yet)
   2. pick vantage tile, 360 spin  --> Server: YOLOE finds notes in each frame, geometry turns each into an edge tile,
-     (pose-tagged JPEG frames)               Gemini ranks notes, rules pick 3 task + 1 fix          --> setup (draft stations)
+     (pose-tagged JPEG frames)               Gemini ranks notes, rules pick up to 5 task + 1 fix          --> setup (draft stations)
   3. host reviews on the 2D map, edits, confirms
 Players: download setup + worldmap --> relocalize --> AR icons on tiles
 All phones <--> WebSocket JSON (tiles, intents, state) <--> Server (game state machine)
@@ -60,8 +60,8 @@ POST /scan/:room/sweep              header X-Player-Id: <host id>      body <= 6
 3. **Emergency.** The playable tile closest to the polygon centroid. Immutable, one per room.
 4. **Detect.** Run YOLOE (text prompt `yellow sticky note`) on every sweep frame. Default checkpoint is YOLOE-26 Large (`yoloe-26l-seg.pt`); `YOLOE_MODEL` can explicitly select Small, Medium, Large or Extra Large. Use 1280 px note inference (960 px for context) and keep observations with score >= 0.50, with same-frame context (`label, box, confidence, imageGap`) as already implemented. Color is not independently verified. Larger capacity has not yet demonstrated better note recall in real-room acceptance; CPU processing is slower. See `server/README.md` for measured timings and the client timeout dependency.
 5. **Place.** For each observation: box center to camera ray (intrinsics), rotate by the frame pose, project to the floor plane, intersect with the polygon boundary, step 1 cm back inside, floor to a tile, snap to the nearest edge tile. Ignore rays that are mostly vertical or farther than 15 m. Merge observations whose wall hits are within 0.75 m into one physical note; the strongest observation is its representative. Reference code and a test: `docs/fixtures/postit/postit-geometry.js`, `check-geometry.js`.
-6. **Rank.** Gemini gets the deduplicated notes (ids `sweep:<n>`) as candidates and returns up to 3 task and 1 fix suggestions, most useful first. Prompt: `server/prompts/station-planning.md`. It sees no coordinates or tiles.
-7. **Select.** Walk Gemini's suggestions in order and keep a pick only if its tile is at least 2 m (Euclidean, tile centers) from every kept pick and is not the emergency tile. Then backfill from the remaining notes by descending score until there are 3 task and 1 fix, or no notes remain. Backfilled and fallback task types rotate through `hold, dial, shake, gesture, hammer`. If Gemini is unavailable or invalid, skip step 6 and rank by score only; setup must never fail because of Gemini. The fix station is the last pick when Gemini gave none.
+6. **Rank.** Gemini gets the deduplicated notes (ids `sweep:<n>`) as candidates and returns up to 5 task and 1 fix suggestions, most useful first. Prompt: `server/prompts/station-planning.md`. It sees no coordinates or tiles.
+7. **Select.** Walk Gemini's suggestions in order and keep a pick only if its tile is at least 2 m (Euclidean, tile centers) from every kept pick and is not the emergency tile. Then backfill from the remaining notes by descending score until there are 5 task (all rooms together) and 1 fix per room, or no notes remain. Backfilled and fallback task types rotate through `hold, dial, shake, gesture, hammer, orbs, signal`, and a task type is used at most once per game. If Gemini is unavailable or invalid, skip step 6 and rank by score only; setup must never fail because of Gemini. The fix station is the last pick when Gemini gave none.
 8. **Name.** Station id `note-<n>`; name `Note by <top context label>` or `Wall note`.
 9. Broadcast `setup` (draft, `setupConfirmed=false`). The host reviews and can move, delete or add stations on edge tiles with `editStation`, then `confirmSetup`. Fewer than 4 stations is allowed; the host fills the gap or plays with fewer tasks.
 
@@ -72,8 +72,21 @@ POST /scan/:room/sweep              header X-Player-Id: <host id>      body <= 6
 
 Approved geometry defaults: loop closure uses horizontal Euclidean distance in `(x,z)`, endpoints at most 0.75 m apart. Task and fix spacing uses Euclidean distance between tile centers, at least 2 m (not Manhattan); the emergency station is separate. Setup validation already enforces spacing for host edits.
 
+## Multiple rooms (zones)
+A game can span up to six scanned rooms, called zones (`z1` to `z6`). Each zone is its own scan in its own ARKit world frame, so it has its own perimeter, grid, sticky-note sweep, ARWorldMap, emergency station and fix station. The first zone is `z1`; a one-room game is a single zone and looks exactly like it did before zones existed.
+
+**Scanning.** The host repeats the same scan for each room (the camera session may keep running between rooms; each zone is still treated as its own frame). Every upload names its room: `POST /scan/:room/perimeter` and `/sweep` take an optional `zone` (default `z1`) and the perimeter takes an optional `name`. `POST /map/:room?zone=z2` and `GET /map/:room?zone=z2` store and fetch that room's ARWorldMap (no `zone` means `z1`). Uploading a zone that already exists replaces it and removes its doors. `removeZone` forgets a room.
+
+**One shared tile space.** The server places the rooms side by side in one combined grid (shelf-packed, rows at most 60 tiles wide, a one-tile gap, at most 100 by 100) and gives each zone an `offset`: `shared tile = local tile + offset`. Everything the game decides (same-tile kills and reports, stations, the scout ping) uses shared tiles. With one zone the offset is 0 and the combined grid is the zone's own grid, including its real origin. With more than one, the combined grid has `originX = originZ = 0` and is only used for the map and the rules; phones work in the zone grids (`zones[].grid`) and add the offset before sending `tile`.
+
+**Doors.** The host marks where two rooms meet with `setDoors`: one edge tile in each room. Doors are informational for the phones (the player walks through and the phone loads the next room's map there) and are checked at `confirmSetup`: every room must be reachable from the first through doors, or the server answers `ZONES_NOT_CONNECTED`.
+
+**Stations.** At most 5 task stations exist in the whole game, shared out round-robin across the rooms by rank, with every task type used at most once. Each room also gets one emergency station and one fix station (when a sabotage starts, the server picks one of the fix stations at random as its repair spot). Station ids are unprefixed in `z1` and prefixed (`z2-...`) in the others.
+
+**Players.** A phone downloads the map of the zone it starts in (the first zone with a map), relocalizes, and reports shared tiles. When its position leaves that zone's grid next to a door, or its map does not match, it loads the other room's map and relocalizes again; the manual tile picker works across all rooms on the combined grid.
+
 ## Positioning model
-- Grid: `cols x rows` of 1.0 m tiles on the floor plane (x, z); origin at the polygon's min corner, in the host's ARKit world frame, so it matches the ARWorldMap.
+- Grid: `cols x rows` of 1.0 m tiles on the floor plane (x, z); origin at the polygon's min corner, in the host's ARKit world frame, so it matches the ARWorldMap. With several rooms each zone has its own grid and frame and the phone reports `local tile + zone offset`.
 - Phone computes `tile = floor((pos - origin) / 1.0)` from ARKit and sends it at 2-4 Hz.
 - Server accepts a tile change only after 2 consecutive identical reports (drift filter).
 - Fallback: `tileSource = "manual"`, player taps a tile on the 2D map. Same message.
@@ -85,24 +98,30 @@ Tile        { x: Int, y: Int }
 Grid        { cols: Int, rows: Int, tileSize: Double (1.0), originX: Double, originZ: Double,
               playable: [Tile], edge: [Tile] }
 Station     { id: String, name: String, tile: Tile, task: TaskType, kind: "task"|"fix"|"emergency" }
-TaskType    "shake" | "tilt" | "dial" | "hold" | "gesture" | "hammer"
+TaskType    "shake" | "tilt" | "dial" | "hold" | "gesture" | "hammer" | "orbs" | "signal"
+Power       "medic" | "scout"
+SabotageKind "lights" | "jammer" | "meltdown"
+Zone        { id: "z1".."z6", name, offset: Tile, grid: Grid, hasMap: Bool,
+              doors: [{ tile: Tile, toZone: id, toTile: Tile }] }   // tiles are local to the zone; offset gives shared tiles
+DoorLink    { a: { zone, tile }, b: { zone, tile } }
 Role        "crew" | "impostor"
 Phase       "lobby" | "playing" | "meeting" | "ended"
 Player      { id, name, tile: Tile?, alive: Bool, tileSource: "ar"|"manual",
               ready: Bool, connected: Bool }
 GameState   { phase, players: [Player], tasksDone: Int, tasksTotal: Int,
-              lightsOut: Bool, killCooldownEndsAt: Int?, meeting: MeetingState? }
+              lightsOut: Bool, killCooldownEndsAt: Int?, meeting: MeetingState?,
+              sabotage: { kind, fixStationId: String?, endsAt: Int?, holders: Int }? }
 MeetingState{ reason: "report"|"emergency", bodyOf: String?, endsAt: Int, votes: { [id]: id|"skip" } }
 ```
 `tasksTotal` counts tasks for living crew only. Ghosts do not do tasks. Times are epoch ms.
-Tilt is legacy decode-only on iOS and plays hold-steady; new station selection and server setup validation allow only shake, dial, hold, gesture and hammer.
+Tilt is legacy decode-only on iOS and plays hold-steady; new station selection and server setup validation allow only shake, dial, hold, gesture, hammer, orbs and signal. Orb Hunt (`orbs`) and Signal Hunt (`signal`) are played by facing directions in the room: the phone's camera heading, not a prop, is the input.
 
 The emergency station's required `task` uses `hold` as an ignored placeholder; clients branch on `kind` and never launch a task for it.
 
 ## Protocol
 JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebSocket:
 - `POST /scan/:room/perimeter` and `POST /scan/:room/sweep`: JSON uploads, host only. Formats in "Sticky-note scan".
-- `POST /map/:room` and `GET /map/:room`: ARWorldMap binary.
+- `POST /map/:room` and `GET /map/:room`: ARWorldMap binary. `?zone=z2` selects a room (default `z1`).
 - Map uploads accept 1 byte to 64 MiB; the host client must use the same cap. The older `RoomScanFlow.maxMapBytes` value of 20 MiB rejects larger maps locally before any request; Owner A must update it and its error text.
 - There is no separate process route: each upload starts its own processing, and results arrive as `processing` then `setup` over WebSocket.
 
@@ -121,17 +140,22 @@ JSON text frames, `{ "t": "<type>", ...fields }`. Large files use HTTP, not WebS
 | `report` | bodyId | reporter on body's tile |
 | `emergency` | | must be on emergency tile, once per player |
 | `vote` | target (id or "skip") | |
-| `sabotage` | | impostor; starts lights out |
-| `fix` | stationId | crew on fix tile |
+| `sabotage` | kind: "lights"\|"jammer"\|"meltdown" | living impostor; starts that sabotage (one at a time, 45 s shared cooldown) |
+| `fix` | stationId | crew on the active sabotage's fix tile; a meltdown needs two crew within 4 s |
+| `ability` | targetId? | crew power. Medic: targetId of a fresh body on the same tile. Scout: none |
+| `setDoors` | doors: [DoorLink] | host only, lobby; replaces the whole list of doors between rooms |
+| `removeZone` | zone | host only, lobby; forgets a scanned room |
 
 ### Server to client
 | t | fields |
 |---|---|
 | `joined` | playerId, room |
-| `lobby` | hostId: String, players, grid: Grid\|null, stations, hasMap, setupConfirmed: Bool |
+| `lobby` | hostId: String, players, grid: Grid\|null, stations, zones: [Zone], hasMap, setupConfirmed: Bool |
 | `processing` | step: "polygon"\|"gemini"\|"placing" |
-| `setup` | grid, stations, setupConfirmed: Bool (draft until confirmed) |
-| `role` | role (private) |
+| `setup` | grid, stations, zones: [Zone], setupConfirmed: Bool (draft until confirmed) |
+| `role` | role, power: Power\|null, partners: [playerId] (private; partners only for impostors) |
+| `scout` | tiles: [{x, y, count}], usesLeft, cooldownEndsAt (private, Scout only) |
+| `revived` | no extra fields; sent only to the revived player |
 | `state` | full GameState (broadcast on every change) |
 | `killed` | no extra fields; sent only to victim, no killer identity |
 | `meeting` | MeetingState |
@@ -148,12 +172,24 @@ On join/reconnect the server sends `joined`, `setup` if available, and the curre
 - Report: reporter alive and on same tile as the body. Emergency: once per player, 3 total.
 - Meeting: 30 s vote; more than half of all living players must vote for a player to eject them; ties, skips and minority votes eject no one.
 - Win: crew when `tasksDone >= tasksTotal` or impostor ejected; impostor when alive crew <= alive impostors.
-- Lights out: `lightsOut=true`, crew tasks rejected until `fix` on the fix station; sabotage cooldown 45 s. Active task screens stop their sensors and close immediately on lights-out, death or leaving the playing phase; partial progress is discarded. AR mode darkens the shared camera view and shows a world-anchored wrench at the fix tile (hidden when tracking is unavailable); the manual map remains available. Hold the fix button for 3.5 s to send the fix intent.
+- Sabotage: see "Roles, powers and sabotages". Lights out: `lightsOut=true`, crew tasks rejected until `fix` on the fix station; sabotage cooldown 45 s. Active task screens stop their sensors and close immediately on lights-out, death or leaving the playing phase; partial progress is discarded. AR mode darkens the shared camera view and shows a world-anchored wrench at the fix tile (hidden when tracking is unavailable); the manual map remains available. Hold the fix button for 3.5 s to send the fix intent.
 - Elimination triggers one red impact overlay fading above the ghost/end screen. Hold-steady requires 5 s upright with rotation below 0.45 rad/s and user acceleration below 0.07 g.
-- Roles: random, 1 impostor for 4 players (count is a constant `IMPOSTORS`).
+- Roles: random. 4 to 10 players; 1 impostor for 4 to 6, 2 for 7 to 10 (`impostorCount`). Crew powers: see "Roles, powers and sabotages". At most 5 task stations per game.
+
+## Roles, powers and sabotages
+**Players.** 4 to 10. One impostor for 4 to 6 players, two for 7 to 10. Impostors learn each other (`role.partners`).
+
+**Crew powers.** After the impostors are drawn, one random crew member becomes the Medic and a different one the Scout. A power is private; `role` carries it as `power`.
+- **Medic** (`medic`): once per game, `ability {targetId}` on the same tile as a freshly killed player nobody has reported revives them. The body must still be unreported (a report or a meeting makes it too late). The revived player gets `revived` and is alive again at that tile.
+- **Scout** (`scout`): twice per game, with a 40 s gap, `ability` returns `scout {tiles:[{x,y,count}], usesLeft, cooldownEndsAt}`: the tiles other living players stand on and how many, never who.
+
+**Sabotages.** Three kinds, one active at a time, one shared 45 s cooldown, started with `sabotage {kind}` by a living impostor. The server picks one of the fix stations at random and publishes it in `state.sabotage = {kind, fixStationId, endsAt, holders}`.
+- `lights`: crew tasks are rejected. It works even in a room without a fix station; the other two need one (`NO_FIX_STATION`). One crew `fix` on the fix station ends it. `lightsOut` stays true while it is active.
+- `jammer`: reports and emergency meetings are rejected (`SABOTAGE_BLOCKS_MEETING`), and crew maps hide task and emergency icons. One crew `fix` ends it.
+- `meltdown`: a 60 s countdown (`endsAt`). Reports and emergency meetings are rejected. Two different living crew must `fix` on the fix station within 4 s of each other (`holders` shows how many have started). If the timer ends first, the impostors win.
 
 ## Detection and task reasoning
-YOLOE is the detector. Only `sticky note` observations are task candidates; doors, windows, whiteboards, light switches, electrical outlets, clocks, posters, fire extinguishers and air vents are context. Gemini is a server-only ranker over metadata. It receives candidate ids, scores, boxes and same-frame context, and returns `{summary,suggestions:[{candidateId,kind,task,reason}]}`: at most three tasks and one fix, most useful first, or fewer. Only known note ids and supported phone tasks are accepted, and any `tile` or `position` field is rejected. It cannot rename detections, pick context objects, or choose the emergency location. The prompt is `server/prompts/station-planning.md`.
+YOLOE is the detector. Only `sticky note` observations are task candidates; doors, windows, whiteboards, light switches, electrical outlets, clocks, posters, fire extinguishers and air vents are context. Gemini is a server-only ranker over metadata. It receives candidate ids, scores, boxes and same-frame context, and returns `{summary,suggestions:[{candidateId,kind,task,reason}]}`: at most five tasks and one fix, most useful first, or fewer. Only known note ids and supported phone tasks are accepted, and any `tile` or `position` field is rejected. It cannot rename detections, pick context objects, or choose the emergency location. The prompt is `server/prompts/station-planning.md`.
 
 Preference: notes with distinctive objects in the same frame (furniture, plants, appliances, shelves, TVs, whiteboards, doors, windows) rank above notes on bare wall, and variety across the chosen notes is preferred. Context is image evidence, never a measured distance. Geometry, not Gemini, decides tiles, spacing, emergency placement and edge rules. Gemini failure retains the notes and falls back to score ranking. Wall attachment, access and accidental duplicates need host review.
 
