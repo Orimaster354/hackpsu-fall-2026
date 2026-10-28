@@ -19,7 +19,7 @@ async function roomServer(t,options={}){
 test('perimeter fixture produces the expected grid, center and broadcast order',async t=>{
   const {room,messages,post}=await roomServer(t);
   const response=await post('perimeter',{poses});
-  assert.equal(response.status,200);assert.deepEqual(response.body,{ok:true,cols:5,rows:5,edgeTiles:16});
+  assert.equal(response.status,200);assert.deepEqual(response.body,{ok:true,zone:'z1',cols:5,rows:5,edgeTiles:16});
   assert.equal(room.grid.originX,-0.5);assert.equal(room.grid.originZ,-0.5);assert.equal(room.grid.playable.length,25);
   assert.deepEqual(room.stations[0].tile,{x:2,y:2});assert.equal(room.stations[0].kind,'emergency');
   assert.deepEqual(messages.filter((_,i)=>i%2===0).map(m=>m.t),['processing','setup','lobby']);
@@ -132,7 +132,7 @@ test('Gemini sees only deduplicated metadata, and invalid selections fall back i
   }};
   const {post,room}=await roomServer(t,{sweepDetector:fixtureDetector,stationPlanner:planner});
   await post('perimeter',{poses});const first=await post('sweep',sweepBody());assert.equal(first.status,200);
-  assert.equal(room.stations[1].id,'note-2');assert.equal(room.stations[1].kind,'fix');assert.equal(first.body.warnings.length,0);
+  const fix=room.stations.find(s=>s.kind==='fix');assert.equal(fix.id,'note-2');assert.equal(first.body.warnings.length,0);
   invalid=true;const second=await post('sweep',sweepBody());assert.equal(second.status,200);assert.equal(second.body.stations,4);
   assert.match(second.body.warnings.join(' '),/invalid/);
 });

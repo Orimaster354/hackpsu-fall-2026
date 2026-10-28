@@ -45,7 +45,7 @@ test('host start needs four connected players and sends exactly one private role
   assert.equal(s.players.filter((player) => player.role === 'impostor').length, 1);
   for (const player of s.players) {
     const roles = player.socket.events.filter((event) => event.t === 'role');
-    assert.deepEqual(roles, [{ t: 'role', role: player.role }]);
+    assert.deepEqual(roles, [{ t: 'role', role: player.role, power: player.power ?? null, partners: [] }]);
     const state = player.socket.events.find((event) => event.t === 'state');
     assert.equal(state.killCooldownEndsAt, 1000000 + KILL_COOLDOWN_MS);
     assert.ok(state.players.every((member) => !('role' in member) && !('socket' in member)));

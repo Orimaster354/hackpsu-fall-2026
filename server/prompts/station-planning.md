@@ -18,24 +18,27 @@ Rank candidates by these, strongest first:
 4. Variety. Prefer a set whose nearby objects differ, so players can tell the spots apart. Do not choose several notes whose only context is the same object when other candidates exist.
 Doors, windows, whiteboards, light switches, outlets, clocks, posters, vents and fire extinguishers are context only. Never return one as a spot, and never suggest blocking a doorway or reaching an extinguisher, switch, outlet or vent. A note near them is fine; the action happens on the phone, not on the equipment.
 
-# Choosing the four
-- Return up to three `task` suggestions and at most one `fix`. Return the maximum when enough usable candidates exist. Fewer, or an empty list, is correct when evidence is weak. Do not pad with poor candidates and do not invent notes.
-- The fix spot is where players restore the lights after sabotage. Prefer a note whose context includes a light switch, outlet or door, or else the clearest remaining note. Give it task `hold`.
+# Choosing the stations
+This is one room of a game that may have several. A whole game has at most five task stations shared across its rooms, so the server may keep only some of what you return for this room.
+- Return up to five `task` suggestions and at most one `fix`. Return the maximum when enough usable candidates exist. Fewer, or an empty list, is correct when evidence is weak. Do not pad with poor candidates and do not invent notes.
+- The fix spot is where players repair the impostors' sabotages (lights, comms jammer, meltdown). Prefer a note whose context includes a light switch, outlet or door, or else the clearest remaining note. Give it task `hold`.
 - Order the `suggestions` array from best to worst. The server keeps them in this order and drops any that turn out to be too close to an earlier one, then fills gaps itself.
 - Each `candidateId` at most once.
 
 # Task types
-Use only `hold`, `dial`, `shake`, `gesture` or `hammer`. Match the type to the surroundings when evidence supports it. **Never give two task suggestions the same type**: every task station in a room must be a different challenge (the server enforces this and will change a repeat, so choose well):
+Use only `hold`, `dial`, `shake`, `gesture`, `hammer`, `orbs` or `signal`. Match the type to the surroundings when evidence supports it. **Never give two task suggestions the same type**: every task station in a room must be a different challenge (the server enforces this and will change a repeat, so choose well):
 - `hold`: keep the phone still. Fits desks, tables, shelves, monitors, calm spots.
 - `dial`: rotate the phone like a knob. Fits doors, windows, switches, clocks.
 - `shake`: shake the phone. Fits sinks, refrigerators, plants, mugs, bottles, busy spots.
 - `gesture`: tilt the phone in a shown pattern. Fits open floor, rugs, low tables.
 - `hammer`: swing the phone down like a hammer to drive a nail. Fits shelves, wooden furniture, workbenches, frames.
+- `orbs`: turn around and aim the camera at glowing orbs floating in the room. Fits open spaces with room to turn: the middle of a wall, a doorway, a corner with space.
+- `signal`: sweep the phone around to find a hidden signal by feel. Fits cluttered spots, shelves, desks and anywhere with lots of things nearby.
 With no supporting context, choose the type no other pick uses yet. Never require touching equipment, moving a note, opening a door or climbing.
 
 # Output
 Return only JSON, no other text:
-`{ "summary": "<one or two sentences, under 400 characters>", "suggestions": [ { "candidateId": "...", "kind": "task" | "fix", "task": "hold" | "dial" | "shake" | "gesture" | "hammer", "reason": "<under 250 characters>" } ] }`
+`{ "summary": "<one or two sentences, under 400 characters>", "suggestions": [ { "candidateId": "...", "kind": "task" | "fix", "task": "hold" | "dial" | "shake" | "gesture" | "hammer" | "orbs" | "signal", "reason": "<under 250 characters>" } ] }`
 - `reason` cites only what the input shows: score, labels, gap. Example: "Score 0.82, a bookshelf (gap 0.04) and a plant (gap 0.09) in the same image; the shelf makes it easy to find." Say when evidence is thin: "Score 0.61, no context, chosen to fill the last slot."
 - Never include coordinates, tiles, distances in meters, positions, the emergency location, or claims that spacing, wall attachment, access or room geometry were checked. The server and the host verify those.
 - If every candidate is weak, return an empty `suggestions` array and say why in `summary`.

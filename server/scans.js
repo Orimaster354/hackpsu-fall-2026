@@ -1,8 +1,9 @@
 const { RoomError, requireAction } = require('./errors');
 const { buildPerimeter } = require('./perimeter');
+const { zoneId, zoneName, ensureZone, scannedZones, recompose, resetZone } = require('./zones');
 const LIMITS={perimeter:2*1024*1024,sweep:64*1024*1024};
 const statusFor={ROOM_NOT_FOUND:404,HOST_ONLY:403,INVALID_PHASE:409,SETUP_LOCKED:409,SETUP_MISSING:409,
-  SCAN_BUSY:409,SCAN_UPLOAD_TOO_LARGE:413,SCAN_FAILED:422,SCAN_UPLOAD_INVALID:400};
+  SCAN_BUSY:409,SCAN_UPLOAD_TOO_LARGE:413,SCAN_FAILED:422,SCAN_UPLOAD_INVALID:400,INVALID_ZONE:400,TOO_MANY_ZONES:409,ZONES_TOO_LARGE:422};
 function valid(ok,message) {requireAction(ok,'SCAN_UPLOAD_INVALID',message);}
 function pose(value) {
   valid(value && ['x','y','z','qx','qy','qz','qw'].every(k=>Number.isFinite(value[k])),'Pose needs finite position and quaternion fields.');
@@ -39,22 +40,31 @@ function createScanHandler(manager,options={}) {
       room=manager.rooms.get(code);authorize(room,request);
       valid(request.method==='POST','Use POST for scan uploads.');
       requireAction(!room.scanBusy,'SCAN_BUSY','This room is already processing a scan.');
-      if(step==='sweep')requireAction(room.scanGeometry && room.grid,'SETUP_MISSING','Upload a perimeter first.');
+      if(step==='sweep')requireAction(scannedZones(room).length && room.grid,'SETUP_MISSING','Upload a perimeter first.');
       valid(request.headers['content-type']?.split(';')[0].trim()==='application/json','Send application/json.');
       requireAction(Number(request.headers['content-length']||0)<=LIMITS[step],'SCAN_UPLOAD_TOO_LARGE','Scan exceeds the upload limit.');
       room.scanBusy=true;ownsSlot=true;active.add(controller);
       run=monitor?.begin(room,step,Number(request.headers['content-length']||0));
       const body=await readJson(request,LIMITS[step],receivedBytes=>monitor?.update(run,{receivedBytes}));authorize(room,request);controller.signal.throwIfAborted();
       let result;
+      // Every scan names the room it belongs to (default z1, so a one-room game is unchanged).
+      const zid=zoneId(body?.zone),name=zoneName(body?.name);
+      if(step==='sweep')requireAction(room.zones.get(zid)?.geometry,'SETUP_MISSING','Upload this room\'s perimeter first.');
       if(step==='perimeter'){
         const poses=perimeterInput(body);
         monitor?.update(run,{status:'processing',step:'polygon'});monitor?.event(run,`Building grid from ${poses.length} poses.`);
         room.broadcast({t:'processing',step:'polygon'});
         const geometry=buildPerimeter(poses);
-        room.game.applySetup({grid:geometry.grid,stations:[geometry.emergency]});
-        room.scanGeometry=geometry;
+        // Rescanning a room starts it over: its old map and doors no longer match the new world frame.
+        const existed=room.zones.has(zid),zone=ensureZone(room,zid,name);
+        const before={geometry:zone.geometry,ranked:zone.ranked,maps:new Map(room.maps),doors:room.doors};
+        zone.geometry=geometry;zone.ranked=[];resetZone(room,zid);
+        try{recompose(room);}catch(error){
+          if(existed){zone.geometry=before.geometry;zone.ranked=before.ranked;}else room.zones.delete(zid);
+          room.maps=before.maps;room.doors=before.doors;throw error;
+        }
         monitor?.update(run,{grid:room.grid,stations:room.stations});
-        result={ok:true,cols:geometry.grid.cols,rows:geometry.grid.rows,edgeTiles:geometry.grid.edge.length};
+        result={ok:true,zone:zid,cols:geometry.grid.cols,rows:geometry.grid.rows,edgeTiles:geometry.grid.edge.length};
       }else{
         const {processSweep}=require('./sweep');
         result=await processSweep(room,body,{...options,monitorRun:run,signal:controller.signal,

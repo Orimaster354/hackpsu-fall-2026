@@ -1,3 +1,5 @@
+const { zoneId, scannedZones } = require('./zones');
+
 const MAX_MAP_BYTES = 64 * 1024 * 1024;
 
 class MapError extends Error {
@@ -29,10 +31,16 @@ async function handleMap(request, response, manager, code, maxBytes = MAX_MAP_BY
     const room = manager.rooms.get(code);
     if (!room) throw new MapError(404, 'ROOM_NOT_FOUND', 'Room does not exist.');
     response.setHeader('Cache-Control', 'no-store');
+    // Each scanned room has its own ARWorldMap, because each AR session has its own world frame. `?zone=z2`
+    // picks the room; without it the first room (z1), so a one-room game is unchanged.
+    let zone;
+    try { zone = zoneId(new URL(request.url, 'http://localhost').searchParams.get('zone') ?? undefined); }
+    catch { throw new MapError(400, 'INVALID_ZONE', 'Room id must be z1 to z6.'); }
     if (request.method === 'GET') {
-      if (!room.map) throw new MapError(404, 'MAP_NOT_FOUND', 'No map uploaded yet.');
-      response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': room.map.length });
-      response.end(room.map);
+      const map = room.maps.get(zone);
+      if (!map) throw new MapError(404, 'MAP_NOT_FOUND', 'No map uploaded yet.');
+      response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': map.length });
+      response.end(map);
       return;
     }
     if (request.method !== 'POST') {
@@ -41,6 +49,7 @@ async function handleMap(request, response, manager, code, maxBytes = MAX_MAP_BY
     }
     if (request.headers['x-player-id'] !== room.hostId) throw new MapError(403, 'HOST_ONLY', 'Only the host can upload a map.');
     if (room.phase !== 'lobby') throw new MapError(409, 'INVALID_PHASE', 'Upload maps in the lobby.');
+    if (scannedZones(room).length && !room.zones.get(zone)?.geometry) throw new MapError(404, 'INVALID_ZONE', 'That room has not been scanned.');
     const contentType = request.headers['content-type']?.split(';')[0];
     if (contentType !== 'application/octet-stream') throw new MapError(415, 'INVALID_CONTENT_TYPE', 'Send application/octet-stream.');
     if (Number(request.headers['content-length']) > maxBytes) throw new MapError(413, 'MAP_TOO_LARGE', 'Map exceeds the upload limit.');
@@ -48,8 +57,7 @@ async function handleMap(request, response, manager, code, maxBytes = MAX_MAP_BY
     if (body.length === 0) throw new MapError(400, 'EMPTY_MAP', 'Map must not be empty.');
     // The game may have started while the asynchronous upload was in flight.
     if (room.phase !== 'lobby') throw new MapError(409, 'INVALID_PHASE', 'Game started before upload completed.');
-    room.map = body;
-    room.hasMap = true;
+    room.maps.set(zone, body);
     room.broadcastLobby();
     response.writeHead(204);
     response.end();

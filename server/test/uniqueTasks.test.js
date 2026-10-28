@@ -8,7 +8,7 @@ const notes = [note(0, 0, 1, 0.9), note(1, 4, 1, 0.8), note(2, 1, 4, 0.7), note(
 const emergency = { tile: { x: 2, y: 2 } };
 const taskTypes = (stations) => stations.filter((s) => s.kind === 'task').map((s) => s.task);
 
-test('three task stations never repeat a task type, even when Gemini repeats one', () => {
+test('task stations never repeat a task type, even when Gemini repeats one', () => {
   const stations = selectStations(notes, [
     { candidateId: 'sweep:0', kind: 'task', task: 'hold' },
     { candidateId: 'sweep:1', kind: 'task', task: 'hold' },
@@ -16,8 +16,8 @@ test('three task stations never repeat a task type, even when Gemini repeats one
     { candidateId: 'sweep:3', kind: 'fix', task: 'hold' },
   ], emergency);
   const tasks = taskTypes(stations);
-  assert.equal(tasks.length, 3);
-  assert.equal(new Set(tasks).size, 3, `repeat in ${tasks}`);
+  assert.equal(tasks.length, 4, 'five spaced notes give four tasks and one fix');
+  assert.equal(new Set(tasks).size, tasks.length, `repeat in ${tasks}`);
   assert.equal(tasks[0], 'hold', 'the first station keeps the type Gemini chose');
 });
 
@@ -48,8 +48,8 @@ test('fallback and obsolete Tilt suggestions never assign the removed ball task'
     { candidateId: 'sweep:1', kind: 'task', task: 'tilt' },
   ]]) {
     const tasks = taskTypes(selectStations(notes, suggestions, emergency));
-    assert.equal(tasks.length, 3);
+    assert.equal(tasks.length, 4);
     assert.ok(!tasks.includes('tilt'));
-    assert.equal(new Set(tasks).size, 3);
+    assert.equal(new Set(tasks).size, tasks.length);
   }
 });

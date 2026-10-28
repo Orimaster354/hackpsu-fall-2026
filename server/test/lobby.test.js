@@ -40,30 +40,29 @@ function connect(url) {
   });
 }
 
-test('four fake clients share one lobby and a fifth is rejected', async (t) => {
+test('ten fake clients share one lobby and an eleventh is rejected', async (t) => {
   const app = createAppServer();
   const address = await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
   const url = `ws://127.0.0.1:${address.port}/ws`;
-  const clients = await Promise.all(Array.from({ length: 5 }, () => connect(url)));
+  const clients = await Promise.all(Array.from({ length: 11 }, () => connect(url)));
 
   clients[0].send({ t: 'create', name: 'Host' });
   const host = await clients[0].waitFor((m) => m.t === 'joined');
   assert.match(host.room, /^[A-Z]{4}$/);
 
-  for (let i = 1; i < 4; i += 1) {
+  for (let i = 1; i < 10; i += 1) {
     clients[i].send({ t: 'join', room: host.room, name: `Player ${i + 1}` });
     const joined = await clients[i].waitFor((m) => m.t === 'joined');
     assert.equal(joined.room, host.room);
     assert.notEqual(joined.playerId, host.playerId);
   }
 
-  for (const client of clients.slice(0, 4)) {
-    const lobby = await client.waitFor((m) => m.t === 'lobby' && m.players.length === 4);
+  for (const client of clients.slice(0, 10)) {
+    const lobby = await client.waitFor((m) => m.t === 'lobby' && m.players.length === 10);
     assert.equal(lobby.hostId, host.playerId);
-    assert.deepEqual(lobby.players.map((player) => player.name), [
-      'Host', 'Player 2', 'Player 3', 'Player 4',
-    ]);
+    assert.deepEqual(lobby.players.map((player) => player.name),
+      ['Host', ...Array.from({ length: 9 }, (_, index) => `Player ${index + 2}`)]);
     assert.equal(lobby.grid, null);
     assert.equal(lobby.setupConfirmed, false);
     assert.deepEqual(lobby.stations, []);
@@ -71,8 +70,8 @@ test('four fake clients share one lobby and a fifth is rejected', async (t) => {
     assert.ok(lobby.players.every((player) => !('role' in player)));
   }
 
-  clients[4].send({ t: 'join', room: host.room, name: 'Too many' });
-  const error = await clients[4].waitFor((m) => m.t === 'error');
+  clients[10].send({ t: 'join', room: host.room, name: 'Too many' });
+  const error = await clients[10].waitFor((m) => m.t === 'error');
   assert.equal(error.code, 'ROOM_FULL');
 });
 

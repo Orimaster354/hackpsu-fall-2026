@@ -80,7 +80,7 @@ test('setup edits, confirmation and reconnect use the documented shared JSON mes
   host.send({ t: 'create', name: 'Host' });
   const identity = await host.waitFor((event) => event.t === 'joined');
   const draft = await host.waitFor((event) => event.t === 'setup');
-  assert.deepEqual(draft, manualSetup);
+  assert.deepEqual(draft, { ...manualSetup, zones: [] });
   const guest = await connectClient(url);
   guest.send({ t: 'join', room: identity.room, name: 'Guest' });
   await guest.waitFor((event) => event.t === 'joined');

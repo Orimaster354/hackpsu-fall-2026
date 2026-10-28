@@ -1,6 +1,9 @@
 const { requireAction } = require('./errors');
 
-const TASK_TYPES = new Set(['shake', 'dial', 'hold', 'gesture', 'hammer']);
+// Seven challenges. A game uses at most MAX_TASK_STATIONS of them, each at most once.
+const TASK_TYPES = new Set(['shake', 'dial', 'hold', 'gesture', 'hammer', 'orbs', 'signal']);
+const MAX_TASK_STATIONS = 5;
+const MAX_ZONES = 6;
 const sameTile = (a, b) => Boolean(a && b && a.x === b.x && a.y === b.y);
 const tileKey = (tile) => `${tile.x},${tile.y}`;
 
@@ -40,11 +43,14 @@ function validateRoomSetup(grid, stations) {
     return { id: station.id, name: station.name.trim(), tile: { x: station.tile.x, y: station.tile.y }, task: station.task, kind: station.kind };
   });
   const emergency = safeStations.filter((station) => station.kind === 'emergency');
-  requireAction(emergency.length === 1, 'INVALID_EMERGENCY', 'Setup needs exactly one server-placed emergency station.');
+  requireAction(emergency.length >= 1 && emergency.length <= MAX_ZONES, 'INVALID_EMERGENCY',
+    'Setup needs one server-placed emergency station per room.');
   const edgeStations = safeStations.filter((station) => station.kind !== 'emergency');
+  requireAction(edgeStations.filter((station) => station.kind === 'task').length <= MAX_TASK_STATIONS, 'TOO_MANY_TASKS',
+    `A game has at most ${MAX_TASK_STATIONS} task stations.`);
   for (let index = 0; index < edgeStations.length; index += 1) {
     const tile = edgeStations[index].tile;
-    requireAction(!sameTile(tile, emergency[0].tile), 'STATION_OVERLAP', 'A task/fix station cannot occupy the emergency tile.');
+    requireAction(!emergency.some((station) => sameTile(tile, station.tile)), 'STATION_OVERLAP', 'A task/fix station cannot occupy an emergency tile.');
     for (const other of edgeStations.slice(index + 1)) {
       const dx = tile.x - other.tile.x; const dy = tile.y - other.tile.y;
       requireAction(dx * dx + dy * dy >= 4, 'STATIONS_TOO_CLOSE', 'Task/fix tile centers must be at least 2 m apart.');
@@ -53,4 +59,4 @@ function validateRoomSetup(grid, stations) {
   return { grid: safeGrid, stations: safeStations };
 }
 
-module.exports = { sameTile, walkable, validateRoomSetup };
+module.exports = { sameTile, walkable, validateRoomSetup, TASK_TYPES, MAX_TASK_STATIONS, MAX_ZONES };

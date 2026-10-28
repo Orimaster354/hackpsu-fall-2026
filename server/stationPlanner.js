@@ -4,7 +4,8 @@ const { RoomError, requireAction } = require('./errors');
 const { DEFAULT_GEMINI_MODEL } = require('./gemini');
 const { NOTE } = require('./yoloDetector');
 const PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/station-planning.md'), 'utf8');
-const TASKS = ['hold', 'dial', 'shake', 'gesture', 'hammer'];
+const TASKS = ['hold', 'dial', 'shake', 'gesture', 'hammer', 'orbs', 'signal'];
+const MAX_TASK_SUGGESTIONS = 5;
 
 function planningCandidates(result) {
   return result.passes.flatMap((pass) => pass.detections.map((detection, index) => ({
@@ -15,7 +16,7 @@ function planningCandidates(result) {
 }
 
 function validatePlan(value, candidates) {
-  requireAction(value && Array.isArray(value.suggestions) && value.suggestions.length <= 4
+  requireAction(value && Array.isArray(value.suggestions) && value.suggestions.length <= MAX_TASK_SUGGESTIONS + 1
     && typeof value.summary === 'string' && value.summary.length <= 500,
   'PLANNER_INVALID_RESPONSE', 'Gemini returned an invalid station suggestion list.');
   const ids = new Set(); let tasks = 0; let fixes = 0;
@@ -32,7 +33,7 @@ function validatePlan(value, candidates) {
     return { candidateId: candidate.id, label: candidate.label, pass: candidate.pass, t: candidate.t,
       task: item.task, kind: item.kind, reason: item.reason.trim() };
   });
-  requireAction(tasks <= 3 && fixes <= 1, 'PLANNER_INVALID_RESPONSE', 'Choose at most three tasks and one fix candidate.');
+  requireAction(tasks <= MAX_TASK_SUGGESTIONS && fixes <= 1, 'PLANNER_INVALID_RESPONSE', `Choose at most ${MAX_TASK_SUGGESTIONS} tasks and one fix candidate.`);
   return { status: 'needs_geometry', summary: value.summary.trim(), suggestions,
     selectionPolicy: { minimumYoloScore: 0.50, candidateLabel: NOTE, maxPerPass: 8,
       contextMetric: 'same-frame box gap / image diagonal; not meters' },
@@ -57,7 +58,7 @@ function createStationPlanner({ apiKey = process.env.GEMINI_API_KEY,
           contents: [{ role: 'user', parts: [{ text: JSON.stringify({ candidates, geometryAvailable: false }) }] }],
           generationConfig: { temperature: 0.2, maxOutputTokens: 2048, responseMimeType: 'application/json',
             ...(thinkingConfig ? { thinkingConfig } : {}), responseSchema: { type: 'OBJECT', required: ['summary', 'suggestions'],
-              properties: { summary: { type: 'STRING' }, suggestions: { type: 'ARRAY', maxItems: 4,
+              properties: { summary: { type: 'STRING' }, suggestions: { type: 'ARRAY', maxItems: MAX_TASK_SUGGESTIONS + 1,
                 items: { type: 'OBJECT', required: ['candidateId', 'kind', 'task', 'reason'], properties: {
                   candidateId: { type: 'STRING' }, kind: { type: 'STRING', enum: ['task', 'fix'] },
                   task: { type: 'STRING', enum: TASKS }, reason: { type: 'STRING' },

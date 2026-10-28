@@ -2,7 +2,8 @@ const {requireAction}=require('./errors');
 const {pose}=require('./scans');
 const {inside}=require('./perimeter');
 const {placeNotes}=require('./postitGeometry');
-const {sameTile,walkable}=require('./contracts');
+const {sameTile,walkable,MAX_TASK_STATIONS}=require('./contracts');
+const {zoneId,recompose,layout,scannedZones}=require('./zones');
 const {createStationPlanner,validatePlan}=require('./stationPlanner');
 const valid=(ok,message)=>requireAction(ok,'SCAN_UPLOAD_INVALID',message);
 function sweepInput(body,grid){
@@ -27,7 +28,7 @@ function sweepInput(body,grid){
   return {frames,intrinsics:Object.fromEntries(['fx','fy','cx','cy','width','height'].map(key=>[key,k[key]]))};
 }
 const spacing=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)>=2-1e-9;
-const TASKS=['hold','dial','shake','gesture','hammer'];
+const TASKS=['hold','dial','shake','gesture','hammer','orbs','signal'];
 // No two task stations get the same task. The first station keeps its type; a later duplicate takes the first type
 // nobody has used, in TASKS order. Five types cover the three task stations. The fix station is not a motion task.
 function uniqueTaskTypes(picks){
@@ -43,14 +44,14 @@ function selectStations(notes,suggestions,emergency){
   const picks=[];const used=new Set();
   const add=(note,kind,task)=>{
     if(!note || used.has(note.id) || sameTile(note.tile,emergency.tile) || picks.some(p=>!spacing(p.tile,note.tile)))return false;
-    if(picks.filter(p=>p.kind===kind).length>=(kind==='fix'?1:3))return false;
+    if(picks.filter(p=>p.kind===kind).length>=(kind==='fix'?1:MAX_TASK_STATIONS))return false;
     used.add(note.id);picks.push({...note,kind,task:kind==='fix'?'hold':task});return true;
   };
   for(const suggestion of suggestions) add(notes.find(n=>n.id===suggestion.candidateId),suggestion.kind,suggestion.task);
   for(const note of [...notes].sort((a,b)=>b.confidence-a.confidence)){
-    const kind=picks.filter(p=>p.kind==='task').length<3?'task':'fix';
+    const kind=picks.filter(p=>p.kind==='task').length<MAX_TASK_STATIONS?'task':'fix';
     add(note,kind,kind==='fix'?'hold':TASKS[picks.length%TASKS.length]);
-    if(picks.length===4)break;
+    if(picks.length===MAX_TASK_STATIONS+1)break;
   }
   if(picks.length && !picks.some(p=>p.kind==='fix')){picks.at(-1).kind='fix';picks.at(-1).task='hold';}
   uniqueTaskTypes(picks);
@@ -65,8 +66,11 @@ function locatedNotes(frames,intrinsics,geometry){
   });
 }
 async function processSweep(room,body,{sweepDetector,stationPlanner,signal,beforeCommit,scanMonitor,monitorRun}={}){
-  const input=sweepInput(body,room.grid);
-  const geometry=room.scanGeometry;
+  const zid=zoneId(body?.zone);
+  const zone=room.zones.get(zid);
+  requireAction(zone?.geometry,'SETUP_MISSING','Upload this room\'s perimeter first.');
+  const geometry=zone.geometry;
+  const input=sweepInput(body,geometry.grid);
   scanMonitor?.update(monitorRun,{status:'processing',step:'detecting',totalFrames:input.frames.length,grid:room.grid});
   scanMonitor?.event(monitorRun,`Analyzing ${input.frames.length} app JPEG frames with YOLOE.`);
   room.broadcast({t:'processing',step:'gemini'});
@@ -95,16 +99,26 @@ async function processSweep(room,body,{sweepDetector,stationPlanner,signal,befor
     }catch{signal?.throwIfAborted();warnings.push('Gemini ranking unavailable or invalid; stations ranked by detector score.');}
   }else warnings.push('No usable wall notes found. Add stations manually or rescan.');
   const stations=selectStations(notes,suggestions,geometry.emergency);
-  if(stations.length<4)warnings.push(`Only ${stations.length} spaced task/fix stations could be placed; host review is required.`);
+  const taskCount=stations.filter(s=>s.kind==='task').length;
+  if(taskCount<2||!stations.some(s=>s.kind==='fix'))warnings.push(`Only ${taskCount} task and ${stations.filter(s=>s.kind==='fix').length} fix stations could be placed in this room; host review is required.`);
   beforeCommit?.();
   room.broadcast({t:'processing',step:'placing'});
-  room.game.applySetup({grid:geometry.grid,stations:[geometry.emergency,...stations]});
+  // This room's ranked candidates are stored, then every room's share of the game's five task stations is
+  // recomputed together, so adding a room rebalances the others.
+  const previousRanked=zone.ranked;
+  zone.ranked=stations;
+  let placed;
+  try{placed=recompose(room);}catch(error){zone.ranked=previousRanked;throw error;}
+  const here=placed.find(entry=>entry.zone===zone).offset,{cols,rows}=geometry.grid;
+  const inHere=s=>s.tile.x>=here.x&&s.tile.x<here.x+cols&&s.tile.y>=here.y&&s.tile.y<here.y+rows;
+  const kept=room.stations.filter(s=>s.kind!=='emergency'&&inHere(s));
+  if(kept.length<stations.length)warnings.push(`The game allows ${MAX_TASK_STATIONS} task stations in total, so ${stations.length-kept.length} candidate station(s) in this room were left out.`);
   const ordered=[...notes].sort((a,b)=>Number(stations.some(s=>s.id===`note-${b.id.split(':')[1]}`))-Number(stations.some(s=>s.id===`note-${a.id.split(':')[1]}`)));
   scanMonitor?.retain(monitorRun,ordered,frames,input);
   scanMonitor?.update(monitorRun,{step:'placing',grid:room.grid,stations:room.stations,
     notes:ordered.slice(0,64).map(n=>({...candidates.find(c=>c.id===n.id),frameIndex:n.best.frameIndex,
       observationCount:n.observations.length,station:stations.find(s=>s.id===`note-${n.id.split(':')[1]}`)||null})),
     planning:{suggestions},warnings});
-  return {ok:true,notesFound:notes.length,stations:stations.length,warnings};
+  return {ok:true,zone:zid,notesFound:notes.length,stations:kept.length,warnings};
 }
 module.exports={sweepInput,locatedNotes,selectStations,processSweep};

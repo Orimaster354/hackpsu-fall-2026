@@ -1,9 +1,9 @@
 const { randomInt, randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
 const { RoomError } = require('./errors');
-const { Game } = require('./game');
+const { Game, MAX_PLAYERS } = require('./game');
+const { zonesInfo } = require('./zones');
 
-const MAX_PLAYERS = 4;
 const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function roomCode() {
@@ -28,12 +28,15 @@ class Room {
     this.code = code;
     this.hostId = null;
     this.players = new Map();
+    // The combined grid and stations the game rules use. With scanned rooms they are built from `zones`.
     this.grid = null;
+    this.zones = new Map();
+    this.doors = [];
+    this.maps = new Map();
     this.setupConfirmed = false;
     this.scanBusy = false;
     this.scanGeometry = null;
     this.stations = [];
-    this.hasMap = false;
     this.phase = 'lobby';
     this.game = new Game(this, options);
     if (options.manualSetup) this.game.applySetup(options.manualSetup);
@@ -60,7 +63,7 @@ class Room {
     if (this.phase !== 'lobby') throw new RoomError('GAME_STARTED', 'New players cannot join after game start.');
 
     if (this.players.size >= MAX_PLAYERS) {
-      throw new RoomError('ROOM_FULL', 'This room already has four players.');
+      throw new RoomError('ROOM_FULL', `This room already has ${MAX_PLAYERS} players.`);
     }
 
     const player = {
@@ -103,6 +106,17 @@ class Room {
       }));
   }
 
+  /** Kept for older code and tests; see mapsReady(). */
+  get hasMap() {
+    return this.mapsReady();
+  }
+
+  /** True when the maps needed to relocalize exist: one per scanned room, or the single legacy map. */
+  mapsReady() {
+    const scanned = [...this.zones.values()].filter((zone) => zone.geometry);
+    return scanned.length ? scanned.every((zone) => this.maps.has(zone.id)) : this.maps.size > 0;
+  }
+
   lobbyMessage() {
     return {
       t: 'lobby',
@@ -110,7 +124,8 @@ class Room {
       players: this.publicPlayers(),
       grid: this.grid,
       stations: this.stations,
-      hasMap: this.hasMap,
+      zones: zonesInfo(this),
+      hasMap: this.mapsReady(),
       setupConfirmed: this.setupConfirmed,
     };
   }
@@ -120,7 +135,7 @@ class Room {
   }
 
   setupMessage() {
-    return { t: 'setup', grid: this.grid, stations: this.stations, setupConfirmed: this.setupConfirmed };
+    return { t: 'setup', grid: this.grid, stations: this.stations, zones: zonesInfo(this), setupConfirmed: this.setupConfirmed };
   }
 
   broadcastSetup() {

@@ -83,7 +83,7 @@ function createAppServer(options = {}) {
             originX: room.grid.originX, originZ: room.grid.originZ } : null,
           setupConfirmed: room.setupConfirmed,
           stationCount: room.stations.length,
-          hasMap: room.hasMap,
+          hasMap: room.mapsReady(),
           players: room.lobbyMessage().players.map((player) => ({
             label: player.id.slice(0, 8), name: player.name,
             host: player.id === room.hostId, connected: player.connected,
@@ -152,7 +152,7 @@ function createAppServer(options = {}) {
           if (membership.room.phase === 'lobby') membership.room.broadcastLobby();
           else {
             send(socket, membership.room.lobbyMessage());
-            send(socket, { t: 'role', role: membership.player.role });
+            send(socket, membership.room.game.roleMessage(membership.player));
             membership.room.game.publish();
             if (membership.room.game.winner) send(socket, {
               t: 'result', ejected: null, role: null, winner: membership.room.game.winner,
